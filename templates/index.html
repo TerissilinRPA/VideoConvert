@@ -183,13 +183,13 @@
                                     <div class="row">
                                         <div class="col-md-6">
                                             <strong>Request:</strong>
-                                            <pre class="bg-light p-2 mt-2 small"><code>curl -X POST \
+                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -X POST \
   -F "file=@video.webm" \
   {{ request.url_root }}api/convert</code></pre>
                                         </div>
                                         <div class="col-md-6">
                                             <strong>Response:</strong>
-                                            <pre class="bg-light p-2 mt-2 small"><code>{
+                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>{
   "success": true,
   "file_id": "uuid-string",
   "download_url": "/api/download/uuid"
@@ -204,7 +204,7 @@
                                     <div class="bg-dark p-3 rounded mb-2">
                                         <code class="text-light">GET /api/download/&lt;file_id&gt;</code>
                                     </div>
-                                    <pre class="bg-light p-2 mt-2 small"><code>curl -O {{ request.url_root }}api/download/your-file-id</code></pre>
+                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -O {{ request.url_root }}api/download/your-file-id</code></pre>
                                 </div>
                                 
                                 <!-- Status Endpoint -->
@@ -216,11 +216,11 @@
                                     <div class="row">
                                         <div class="col-md-6">
                                             <strong>Request:</strong>
-                                            <pre class="bg-light p-2 mt-2 small"><code>curl {{ request.url_root }}api/status</code></pre>
+                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>curl {{ request.url_root }}api/status</code></pre>
                                         </div>
                                         <div class="col-md-6">
                                             <strong>Response:</strong>
-                                            <pre class="bg-light p-2 mt-2 small"><code>{
+                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>{
   "status": "online",
   "ffmpeg_available": true,
   "max_file_size_mb": 500

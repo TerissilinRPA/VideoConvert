@@ -88,6 +88,23 @@
     }
 }
 
+/* API Documentation code blocks */
+.bg-light code {
+    color: #212529 !important; /* Force dark text in light backgrounds */
+}
+
+.bg-dark code {
+    color: #ffffff !important; /* Force light text in dark backgrounds */
+}
+
+pre.bg-light {
+    color: #212529 !important;
+}
+
+pre.bg-dark {
+    color: #ffffff !important;
+}
+
 /* Custom scrollbar for better UX */
 ::-webkit-scrollbar {
     width: 8px;

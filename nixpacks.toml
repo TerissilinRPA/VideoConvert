@@ -1,35 +1,26 @@
 
-[variables]
-    # Environment variables for the application
-    FLASK_APP = "app.py"
-    FLASK_ENV = "production"
-    PORT = "5000"
-    SESSION_SECRET = "${SESSION_SECRET}"
+providers = ["python"]
 
-[providers]
-    # Use Python provider
-    python = "3.11"
+[variables]
+FLASK_ENV = "production"
+PORT = "5000"
+SESSION_SECRET = "${SESSION_SECRET}"
 
 [phases.setup]
-    # Install system dependencies
-    nixPkgs = ["python311", "ffmpeg", "pkg-config"]
+# Pin Python and add system packages
+nixPkgs = ["python311", "ffmpeg", "pkg-config"]
 
 [phases.install]
-    # Install Python dependencies from pyproject.toml
-    cmd = "pip install -e ."
+# Install your app (reads pyproject.toml / setup.cfg if present)
+cmd = "pip install --no-cache-dir -e ."
 
 [phases.build]
-    # No build step needed for Flask app
-    cmd = "echo 'No build step required'"
+# Optional: no build step for a plain Flask app
+cmd = "echo 'No build step required'"
 
 [start]
-    # Start command for the application
-    cmd = "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 300 main:app"
+# Make sure the module:app path matches your code (here: main.py defines app)
+cmd = "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 300 main:app"
 
 [staticAssets]
-    # Serve static files
-    "/static" = "./static"
-
-[build]
-packages = ["ffmpeg", "ffmpeg_6-full"]
-
+"/static" = "./static"

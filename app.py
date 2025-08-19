@@ -4,7 +4,8 @@ import logging
 import tempfile
 from pathlib import Path
 
-import ffmpeg
+import subprocess
+import json
 from flask import Flask, request, jsonify, render_template, send_file, flash, redirect, url_for
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -30,17 +31,29 @@ def allowed_file(filename):
 def validate_webm_file(file_path):
     """Validate that the uploaded file is actually a webm video file."""
     try:
-        probe = ffmpeg.probe(file_path)
-        video_streams = [stream for stream in probe['streams'] if stream['codec_type'] == 'video']
+        # Use ffprobe to get file information
+        cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', file_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode != 0:
+            return False, "Invalid video file format"
+        
+        probe_data = json.loads(result.stdout)
+        
+        # Check for video streams
+        video_streams = [stream for stream in probe_data.get('streams', []) if stream.get('codec_type') == 'video']
         if not video_streams:
             return False, "No video stream found in file"
         
         # Check if it's a webm container
-        format_name = probe['format']['format_name']
+        format_name = probe_data.get('format', {}).get('format_name', '')
         if 'webm' not in format_name.lower() and 'matroska' not in format_name.lower():
             return False, "File is not a valid WebM format"
         
         return True, "Valid WebM file"
+    except subprocess.TimeoutExpired:
+        logger.error("File validation timed out")
+        return False, "File validation timed out"
     except Exception as e:
         logger.error(f"Error validating file: {str(e)}")
         return False, f"Error validating file: {str(e)}"
@@ -50,22 +63,31 @@ def convert_webm_to_mp4(input_path, output_path):
     try:
         logger.info(f"Starting conversion: {input_path} -> {output_path}")
         
-        # Use ffmpeg-python to convert webm to mp4
-        stream = ffmpeg.input(input_path)
-        stream = ffmpeg.output(stream, output_path, 
-                             vcodec='libx264',  # H.264 video codec
-                             acodec='aac',      # AAC audio codec
-                             crf=23,            # Constant Rate Factor for quality
-                             preset='medium')   # Encoding speed preset
+        # Use ffmpeg command directly
+        cmd = [
+            'ffmpeg',
+            '-i', input_path,
+            '-c:v', 'libx264',  # H.264 video codec
+            '-c:a', 'aac',      # AAC audio codec
+            '-crf', '23',       # Constant Rate Factor for quality
+            '-preset', 'medium', # Encoding speed preset
+            '-y',               # Overwrite output file
+            output_path
+        ]
         
         # Run the conversion
-        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # 10 minute timeout
+        
+        if result.returncode != 0:
+            error_msg = f"FFmpeg conversion failed: {result.stderr}"
+            logger.error(error_msg)
+            return False, error_msg
         
         logger.info(f"Conversion completed successfully: {output_path}")
         return True, "Conversion successful"
         
-    except ffmpeg.Error as e:
-        error_msg = f"FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}"
+    except subprocess.TimeoutExpired:
+        error_msg = "Conversion timed out - file may be too large"
         logger.error(error_msg)
         return False, error_msg
     except Exception as e:
@@ -187,12 +209,9 @@ def api_status():
     """Check API status and ffmpeg availability."""
     try:
         # Test ffmpeg availability
-        try:
-            ffmpeg.probe('pipe:', f_format='lavfi', sources='testsrc=duration=1:size=32x32:rate=1')
-            ffmpeg_available = True
-        except Exception:
-            ffmpeg_available = False
-    except:
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=10)
+        ffmpeg_available = result.returncode == 0
+    except Exception:
         ffmpeg_available = False
     
     return jsonify({

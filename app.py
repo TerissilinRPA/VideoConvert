@@ -7,7 +7,6 @@ from pathlib import Path
 import subprocess
 import json
 from flask import Flask, request, jsonify, render_template, send_file, flash, redirect, url_for
-from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 

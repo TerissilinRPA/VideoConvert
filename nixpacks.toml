@@ -1,2 +1,35 @@
+<<<<<<< HEAD
+[variables]
+    # Environment variables for the application
+    FLASK_APP = "app.py"
+    FLASK_ENV = "production"
+    PORT = "5000"
+    SESSION_SECRET = "${SESSION_SECRET}"
+
+[providers]
+    # Use Python provider
+    python = "3.11"
+
+[phases.setup]
+    # Install system dependencies
+    nixPkgs = ["python311", "ffmpeg", "pkg-config"]
+
+[phases.install]
+    # Install Python dependencies from pyproject.toml
+    cmd = "pip install -e ."
+
+[phases.build]
+    # No build step needed for Flask app
+    cmd = "echo 'No build step required'"
+
+[start]
+    # Start command for the application
+    cmd = "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 300 main:app"
+
+[staticAssets]
+    # Serve static files
+    "/static" = "./static"
+=======
 [build]
 packages = ["ffmpeg", "ffmpeg_6-full"]
+>>>>>>> 9afc56154d5d1e0841143941905b68843f8f27fe

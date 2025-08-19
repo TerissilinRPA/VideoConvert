@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebM to MP4 Converter</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <!-- Header -->
+                <div class="text-center mb-5">
+                    <h1 class="display-4 mb-3">
+                        <i class="fas fa-video me-3"></i>
+                        WebM to MP4 Converter
+                    </h1>
+                    <p class="lead text-muted">
+                        Convert your WebM video files to MP4 format quickly and easily
+                    </p>
+                </div>
+
+                <!-- API Status Card -->
+                <div class="card mb-4" id="statusCard">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm me-3" role="status" id="statusSpinner">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <span id="statusText">Checking service status...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Form -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-upload me-2"></i>
+                            Upload WebM File
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="uploadForm" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="fileInput" class="form-label">Select WebM file</label>
+                                <input type="file" class="form-control" id="fileInput" name="file" accept=".webm,video/webm" required>
+                                <div class="form-text">
+                                    Maximum file size: 500MB. Only WebM files are supported.
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary" id="convertBtn">
+                                    <i class="fas fa-sync-alt me-2"></i>
+                                    Convert to MP4
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Progress Card -->
+                <div class="card mt-4 d-none" id="progressCard">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="fas fa-cog fa-spin me-2"></i>
+                            Converting...
+                        </h6>
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 100%"></div>
+                        </div>
+                        <small class="text-muted mt-2 d-block">Please wait while your video is being converted</small>
+                    </div>
+                </div>
+
+                <!-- Results Card -->
+                <div class="card mt-4 d-none" id="resultsCard">
+                    <div class="card-body">
+                        <div id="successResult" class="d-none">
+                            <h6 class="card-title text-success">
+                                <i class="fas fa-check-circle me-2"></i>
+                                Conversion Successful!
+                            </h6>
+                            <p class="card-text">Your WebM file has been successfully converted to MP4.</p>
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                                <button class="btn btn-success" id="downloadBtn">
+                                    <i class="fas fa-download me-2"></i>
+                                    Download MP4
+                                </button>
+                                <button class="btn btn-outline-secondary" id="convertAnotherBtn">
+                                    <i class="fas fa-plus me-2"></i>
+                                    Convert Another
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="errorResult" class="d-none">
+                            <h6 class="card-title text-danger">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                Conversion Failed
+                            </h6>
+                            <p class="card-text" id="errorMessage"></p>
+                            <button class="btn btn-outline-secondary" id="tryAgainBtn">
+                                <i class="fas fa-redo me-2"></i>
+                                Try Again
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Information Card -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="card-title mb-0">
+                            <i class="fas fa-info-circle me-2"></i>
+                            How it works
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4 text-center mb-3">
+                                <i class="fas fa-upload fa-2x text-primary mb-2"></i>
+                                <h6>1. Upload</h6>
+                                <small class="text-muted">Select your WebM video file</small>
+                            </div>
+                            <div class="col-md-4 text-center mb-3">
+                                <i class="fas fa-cogs fa-2x text-primary mb-2"></i>
+                                <h6>2. Convert</h6>
+                                <small class="text-muted">We process your file using FFmpeg</small>
+                            </div>
+                            <div class="col-md-4 text-center mb-3">
+                                <i class="fas fa-download fa-2x text-primary mb-2"></i>
+                                <h6>3. Download</h6>
+                                <small class="text-muted">Get your converted MP4 file</small>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Features:</h6>
+                                <ul class="list-unstyled">
+                                    <li><i class="fas fa-check text-success me-2"></i>High-quality video conversion</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>Preserves original video quality</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>Automatic file cleanup</li>
+                                    <li><i class="fas fa-check text-success me-2"></i>No file storage - privacy focused</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="notificationToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i class="fas fa-info-circle me-2 text-primary"></i>
+                <strong class="me-auto">Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="toastMessage">
+                <!-- Toast message will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

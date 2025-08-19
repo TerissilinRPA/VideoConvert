@@ -155,6 +155,116 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- API Documentation Card -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="card-title mb-0">
+                            <i class="fas fa-code me-2"></i>
+                            API Documentation
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Use our REST API to integrate video conversion into your applications</p>
+                        
+                        <!-- API Endpoints -->
+                        <div class="row">
+                            <div class="col-12">
+                                <h6 class="text-primary">Endpoints:</h6>
+                                
+                                <!-- Convert Endpoint -->
+                                <div class="mb-4">
+                                    <h6 class="h6"><i class="fas fa-upload text-success me-2"></i>Convert WebM to MP4</h6>
+                                    <div class="bg-dark p-3 rounded mb-2">
+                                        <code class="text-light">POST /api/convert</code>
+                                    </div>
+                                    <p class="small text-muted mb-2">Content-Type: multipart/form-data</p>
+                                    
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>Request:</strong>
+                                            <pre class="bg-light p-2 mt-2 small"><code>curl -X POST \
+  -F "file=@video.webm" \
+  {{ request.url_root }}api/convert</code></pre>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <strong>Response:</strong>
+                                            <pre class="bg-light p-2 mt-2 small"><code>{
+  "success": true,
+  "file_id": "uuid-string",
+  "download_url": "/api/download/uuid"
+}</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Download Endpoint -->
+                                <div class="mb-4">
+                                    <h6 class="h6"><i class="fas fa-download text-info me-2"></i>Download Converted File</h6>
+                                    <div class="bg-dark p-3 rounded mb-2">
+                                        <code class="text-light">GET /api/download/&lt;file_id&gt;</code>
+                                    </div>
+                                    <pre class="bg-light p-2 mt-2 small"><code>curl -O {{ request.url_root }}api/download/your-file-id</code></pre>
+                                </div>
+                                
+                                <!-- Status Endpoint -->
+                                <div class="mb-4">
+                                    <h6 class="h6"><i class="fas fa-heartbeat text-warning me-2"></i>Service Status</h6>
+                                    <div class="bg-dark p-3 rounded mb-2">
+                                        <code class="text-light">GET /api/status</code>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>Request:</strong>
+                                            <pre class="bg-light p-2 mt-2 small"><code>curl {{ request.url_root }}api/status</code></pre>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <strong>Response:</strong>
+                                            <pre class="bg-light p-2 mt-2 small"><code>{
+  "status": "online",
+  "ffmpeg_available": true,
+  "max_file_size_mb": 500
+}</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- API Limits -->
+                                <hr>
+                                <div class="mt-3">
+                                    <h6>API Limits:</h6>
+                                    <ul class="list-unstyled">
+                                        <li><i class="fas fa-weight-hanging text-primary me-2"></i>Max file size: 500MB</li>
+                                        <li><i class="fas fa-file-video text-primary me-2"></i>Supported format: WebM only</li>
+                                        <li><i class="fas fa-clock text-primary me-2"></i>Conversion timeout: 10 minutes</li>
+                                        <li><i class="fas fa-trash text-primary me-2"></i>Files auto-deleted after download</li>
+                                    </ul>
+                                </div>
+                                
+                                <!-- JavaScript Example -->
+                                <hr>
+                                <div class="mt-3">
+                                    <h6>JavaScript Example:</h6>
+                                    <pre class="bg-dark text-light p-3 rounded small"><code>// Convert file using JavaScript
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+fetch('/api/convert', {
+    method: 'POST',
+    body: formData
+})
+.then(response => response.json())
+.then(data => {
+    if (data.success) {
+        // Download converted file
+        window.location = data.download_url;
+    }
+});</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

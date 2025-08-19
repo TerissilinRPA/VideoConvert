@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import json
 from flask import Flask, request, jsonify, render_template, send_file, flash, redirect, url_for
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 # Create the Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key-change-in-production")
+
+CORS(app)
 
 # Configuration
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size

@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 [variables]
     # Environment variables for the application
     FLASK_APP = "app.py"
@@ -29,7 +29,7 @@
 [staticAssets]
     # Serve static files
     "/static" = "./static"
-=======
+
 [build]
 packages = ["ffmpeg", "ffmpeg_6-full"]
->>>>>>> 9afc56154d5d1e0841143941905b68843f8f27fe
+

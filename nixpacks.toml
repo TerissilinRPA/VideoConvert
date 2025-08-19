@@ -1,2 +1,2 @@
 [build]
-packages = ["ffmpeg", "ffprobe"]
+packages = ["ffmpeg", "ffmpeg_6-full"]

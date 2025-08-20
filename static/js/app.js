@@ -5,6 +5,8 @@ class VideoConverter {
         this.queueInterval = null;
         this.initializeEventListeners();
         this.checkApiStatus();
+        // Check queue status immediately on page load
+        this.updateQueueStatus();
         this.startQueuePolling();
     }
 
@@ -408,14 +410,24 @@ class VideoConverter {
         const queueItems = document.getElementById('queueItems');
         const queueCount = document.getElementById('queueCount');
         const queueEmptyMessage = document.getElementById('queueEmptyMessage');
+        const queueCard = document.getElementById('queueStatusCard');
         
         // Update queue count
         const totalCount = Object.keys(queueStatus).length;
         queueCount.textContent = totalCount;
         
+        // Show queue card if there are items or bulk mode is enabled
+        const bulkMode = document.getElementById('bulkModeCheckbox').checked;
+        if (totalCount > 0 || bulkMode) {
+            queueCard.classList.remove('d-none');
+        }
+        
         if (totalCount === 0) {
             queueEmptyMessage.classList.remove('d-none');
-            queueItems.innerHTML = '';
+            // Only clear items if there are no items to show
+            if (queueItems.children.length > 0) {
+                queueItems.innerHTML = '';
+            }
             return;
         }
         
@@ -426,17 +438,113 @@ class VideoConverter {
             a[1].timestamp - b[1].timestamp
         );
         
-        // Render queue items
-        queueItems.innerHTML = '';
+        // Update or create queue items more efficiently
+        this.updateQueueItems(sortedItems, queueItems);
+    }
+
+    updateQueueItems(sortedItems, queueItemsContainer) {
+        // Create a map of existing items by file ID
+        const existingItems = {};
+        for (let i = 0; i < queueItemsContainer.children.length; i++) {
+            const child = queueItemsContainer.children[i];
+            const fileId = child.dataset.fileId;
+            if (fileId) {
+                existingItems[fileId] = child;
+            }
+        }
+        
+        // Update or create items
+        const newItems = [];
         sortedItems.forEach(([fileId, status]) => {
-            const itemElement = this.createQueueItemElement(fileId, status);
-            queueItems.appendChild(itemElement);
+            if (existingItems[fileId]) {
+                // Update existing item
+                this.updateQueueItem(existingItems[fileId], fileId, status);
+                newItems.push(existingItems[fileId]);
+                delete existingItems[fileId]; // Remove from existing items
+            } else {
+                // Create new item
+                const newItem = this.createQueueItemElement(fileId, status);
+                newItem.dataset.fileId = fileId; // Add file ID for future updates
+                newItems.push(newItem);
+            }
         });
+        
+        // Remove any remaining existing items (no longer in queue)
+        Object.values(existingItems).forEach(item => item.remove());
+        
+        // Update the container with new order
+        // Only update if the order has changed to prevent unnecessary reflows
+        const currentOrder = Array.from(queueItemsContainer.children).map(child => child.dataset.fileId);
+        const newOrder = newItems.map(item => item.dataset.fileId);
+        
+        if (JSON.stringify(currentOrder) !== JSON.stringify(newOrder)) {
+            queueItemsContainer.innerHTML = '';
+            newItems.forEach(item => queueItemsContainer.appendChild(item));
+        }
+    }
+    
+    updateQueueItem(itemElement, fileId, status) {
+        // Update status badge
+        let badgeClass = 'bg-secondary';
+        let statusText = status.status;
+        
+        switch (status.status) {
+            case 'queued':
+                badgeClass = 'bg-info';
+                break;
+            case 'processing':
+                badgeClass = 'bg-warning';
+                break;
+            case 'completed':
+                badgeClass = 'bg-success';
+                break;
+            case 'error':
+                badgeClass = 'bg-danger';
+                break;
+        }
+        
+        // Format filename (truncate if too long)
+        const filename = status.filename || fileId;
+        // Get the base filename without the extension and add .mp4
+        const baseName = filename.substring(0, filename.lastIndexOf('.')) || filename;
+        const mp4Filename = baseName + '.mp4';
+        const displayFilename = mp4Filename.length > 30 
+            ? mp4Filename.substring(0, 27) + '...' 
+            : mp4Filename;
+        
+        // Update the content
+        itemElement.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong title="${filename}">${displayFilename}</strong>
+                    <br>
+                    <small class="text-muted">${status.message}</small>
+                </div>
+                <div class="text-end">
+                    <span class="badge ${badgeClass}">${statusText}</span>
+                    <br>
+                    ${status.status === 'completed' ? 
+                        `<button class="btn btn-sm btn-success mt-1 download-btn" data-url="${status.download_url}">
+                            <i class="fas fa-download"></i>
+                        </button>` : 
+                        ''}
+                </div>
+            </div>
+        `;
+        
+        // Add event listener for download button
+        const downloadBtn = itemElement.querySelector('.download-btn');
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', () => {
+                this.downloadQueueFile(status.download_url);
+            });
+        }
     }
 
     createQueueItemElement(fileId, status) {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'border rounded p-3 mb-2';
+        itemDiv.dataset.fileId = fileId; // Add file ID for future updates
         
         // Status badge
         let badgeClass = 'bg-secondary';

@@ -35,7 +35,7 @@ MAX_CONCURRENT_CONVERSIONS = 2
 active_conversions = 0
 active_conversions_lock = threading.Lock()
 
-def update_queue_status(file_id, status, message=None, download_url=None):
+def update_queue_status(file_id, status, message=None, download_url=None, filename=None):
     """Update the status of a file in the queue."""
     with queue_lock:
         if file_id not in queue_status:
@@ -43,6 +43,7 @@ def update_queue_status(file_id, status, message=None, download_url=None):
                 'status': status,
                 'message': message or '',
                 'download_url': download_url,
+                'filename': filename,
                 'timestamp': time.time()
             }
         else:
@@ -51,6 +52,8 @@ def update_queue_status(file_id, status, message=None, download_url=None):
                 queue_status[file_id]['message'] = message
             if download_url:
                 queue_status[file_id]['download_url'] = download_url
+            if filename:
+                queue_status[file_id]['filename'] = filename
             queue_status[file_id]['timestamp'] = time.time()
 
 def process_conversion_queue():
@@ -90,7 +93,8 @@ def process_conversion_queue():
                         file_id, 
                         'completed', 
                         'Conversion completed successfully',
-                        f"/api/download/{file_id}"
+                        f"/api/download/{file_id}",
+                        original_filename
                     )
                 else:
                     update_queue_status(file_id, 'error', message)
@@ -404,7 +408,7 @@ def bulk_convert_videos():
             })
             
             # Initialize queue status
-            update_queue_status(file_id, 'queued', 'Waiting in queue...')
+            update_queue_status(file_id, 'queued', 'Waiting in queue...', filename=original_filename)
             
             queued_files.append({
                 'file_id': file_id,
@@ -465,4 +469,8 @@ def server_error(e):
     return render_template('index.html'), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    import sys
+    port = 5000
+    if len(sys.argv) > 1 and sys.argv[1] == '--port':
+        port = int(sys.argv[2])
+    app.run(host='0.0.0.0', port=port, debug=True)

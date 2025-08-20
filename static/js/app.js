@@ -131,10 +131,12 @@ class VideoConverter {
         const durationInput = document.getElementById('durationInput');
         const languageSelect = document.getElementById('languageSelect');
         const voiceSelect = document.getElementById('voiceSelect');
+        const geminiApiKeyInput = document.getElementById('geminiApiKey');
         const file = csvFileInput.files[0];
         const duration = parseInt(durationInput.value) || 3;
         const languageCode = languageSelect.value;
         const voiceName = voiceSelect.value;
+        const geminiApiKey = geminiApiKeyInput.value;
 
         if (!file) {
             this.showToast('Please select a CSV file first.', 'error');
@@ -155,6 +157,9 @@ class VideoConverter {
         formData.append('duration', duration);
         formData.append('language_code', languageCode);
         formData.append('voice_name', voiceName);
+        if (geminiApiKey) {
+            formData.append('gemini_api_key', geminiApiKey);
+        }
 
         try {
             const response = await axios.post('/api/csv-to-video', formData, {

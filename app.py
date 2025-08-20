@@ -226,45 +226,93 @@ def cleanup_file(file_path):
     except Exception as e:
         logger.error(f"Error cleaning up file {file_path}: {str(e)}")
 
-def synthesize_speech(text, output_path, language_code="en-US", voice_name="en-US-Standard-C"):
-    """Synthesize speech from text using Google Cloud Text-to-Speech."""
-    # Check if Google Cloud Text-to-Speech is available
-    if not GOOGLE_CLOUD_AVAILABLE or texttospeech is None:
-        logger.warning("Google Cloud Text-to-Speech not available. Skipping speech synthesis.")
-        return False, "Google Cloud Text-to-Speech not available"
-    
+def synthesize_speech(text, output_path, language_code="en-US", voice_name="en-US-Standard-C", api_key=None):
+    """Synthesize speech from text using Gemini TTS."""
     try:
-        # Initialize the Text-to-Speech client
-        client = texttospeech.TextToSpeechClient()
+        import os
+        import json
+        import requests
         
-        # Set the text input to be synthesized
-        synthesis_input = texttospeech.SynthesisInput(text=text)
+        # Use provided API key or get from environment variables
+        if not api_key:
+            api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            logger.warning("GEMINI_API_KEY not set. Skipping speech synthesis.")
+            return False, "GEMINI_API_KEY not set"
         
-        # Build the voice request
-        voice = texttospeech.VoiceSelectionParams(
-            language_code=language_code,
-            name=voice_name
-        )
+        # Set up the API endpoint
+        model = "gemini-2.0-flash"
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={api_key}"
         
-        # Select the type of audio file you want returned
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3
-        )
+        # Prepare the request payload
+        payload = {
+            "contents": [{
+                "role": "user",
+                "parts": [{
+                    "text": text
+                }]
+            }],
+            "generationConfig": {
+                "responseModalities": ["audio"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {
+                            "voiceName": voice_name
+                        }
+                    }
+                }
+            }
+        }
         
-        # Perform the text-to-speech request
-        response = client.synthesize_speech(
-            input=synthesis_input, voice=voice, audio_config=audio_config
-        )
+        # Make the API request
+        headers = {
+            "Content-Type": "application/json"
+        }
         
-        # Write the response to the output file
+        response = requests.post(api_url, headers=headers, data=json.dumps(payload))
+        
+        if response.status_code != 200:
+            logger.error(f"Gemini TTS API error: {response.status_code} - {response.text}")
+            # Parse error message if possible
+            try:
+                error_data = response.json()
+                error_message = error_data.get("error", {}).get("message", "Unknown error")
+                return False, f"Gemini TTS API error: {response.status_code} - {error_message}"
+            except:
+                return False, f"Gemini TTS API error: {response.status_code}"
+        
+        # Parse the response
+        response_data = response.json()
+        
+        # Extract audio data from the response
+        audio_data = None
+        for item in response_data:
+            if "candidates" in item and len(item["candidates"]) > 0:
+                candidate = item["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    for part in candidate["content"]["parts"]:
+                        if "inlineData" in part and part["inlineData"]["mimeType"].startswith("audio/"):
+                            audio_data = part["inlineData"]["data"]
+                            break
+            if audio_data:
+                break
+        
+        if not audio_data:
+            logger.error("No audio data found in Gemini TTS response")
+            return False, "No audio data found in response"
+        
+        # Decode base64 audio data and save to file
+        import base64
+        audio_bytes = base64.b64decode(audio_data)
+        
         with open(output_path, "wb") as out:
-            out.write(response.audio_content)
+            out.write(audio_bytes)
             logger.info(f"Audio content written to file: {output_path}")
             
         return True, "Speech synthesized successfully"
         
     except Exception as e:
-        logger.error(f"Error synthesizing speech: {str(e)}")
+        logger.error(f"Error synthesizing speech with Gemini TTS: {str(e)}")
         return False, f"Error synthesizing speech: {str(e)}"
 
 def download_image(url, save_path):
@@ -281,7 +329,7 @@ def download_image(url, save_path):
         logger.error(f"Error downloading image from {url}: {str(e)}")
         return False, f"Error downloading image: {str(e)}"
 
-def create_video_from_images(image_paths, output_path, duration_per_image=3, narration_texts=None, language_code="en-US", voice_name="en-US-Standard-C"):
+def create_video_from_images(image_paths, output_path, duration_per_image=3, narration_texts=None, language_code="en-US", voice_name="en-US-Standard-C", api_key=None):
     """Create a video slideshow from a list of image paths using ffmpeg with optional voice narration."""
     try:
         temp_dir = os.path.dirname(image_paths[0]) if image_paths else UPLOAD_FOLDER
@@ -303,7 +351,7 @@ def create_video_from_images(image_paths, output_path, duration_per_image=3, nar
             for i, text in enumerate(narration_texts):
                 if text.strip():
                     audio_path = os.path.join(temp_dir, f"narration_{i}.mp3")
-                    success, message = synthesize_speech(text, audio_path, language_code, voice_name)
+                    success, message = synthesize_speech(text, audio_path, language_code, voice_name, api_key)
                     if success:
                         audio_files.append(audio_path)
                     else:
@@ -434,7 +482,7 @@ def create_video_from_images(image_paths, output_path, duration_per_image=3, nar
         logger.error(error_msg)
         return False, error_msg
 
-def process_csv_and_create_video(csv_path, duration_per_image=3, language_code="en-US", voice_name="en-US-Standard-C"):
+def process_csv_and_create_video(csv_path, duration_per_image=3, language_code="en-US", voice_name="en-US-Standard-C", api_key=None):
     """Process a CSV file and create separate videos for each product from the images."""
     try:
         temp_image_dir = os.path.join(UPLOAD_FOLDER, f"temp_images_{uuid.uuid4()}")
@@ -557,7 +605,8 @@ def process_csv_and_create_video(csv_path, duration_per_image=3, language_code="
                         duration_per_image, 
                         narration_texts, 
                         language_code, 
-                        voice_name
+                        voice_name,
+                        api_key
                     )
                     if success:
                         product_videos.append({
@@ -844,6 +893,7 @@ def csv_to_video():
             
         language_code = request.form.get('language_code', 'en-US')
         voice_name = request.form.get('voice_name', 'en-US-Standard-C')
+        gemini_api_key = request.form.get('gemini_api_key')
         
         # Generate unique filenames
         file_id = str(uuid.uuid4())
@@ -859,7 +909,7 @@ def csv_to_video():
         logger.info(f"CSV file uploaded: {input_path}")
         
         # Process the CSV and create videos
-        success, result = process_csv_and_create_video(input_path, duration, language_code, voice_name)
+        success, result = process_csv_and_create_video(input_path, duration, language_code, voice_name, gemini_api_key)
         
         # Clean up input file
         cleanup_file(input_path)

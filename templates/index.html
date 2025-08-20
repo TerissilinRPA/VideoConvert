@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebM to MP4 Converter</title>
+    <title>Video Converter & Creator</title>
     <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
@@ -16,10 +16,10 @@
                 <div class="text-center mb-5">
                     <h1 class="display-4 mb-3">
                         <i class="fas fa-video me-3"></i>
-                        WebM to MP4 Converter
+                        Video Converter & Creator
                     </h1>
                     <p class="lead text-muted">
-                        Convert your WebM video files to MP4 format quickly and easily
+                        Convert your WebM video files to MP4 format or create videos from CSV files with image URLs
                     </p>
                 </div>
 
@@ -40,35 +40,73 @@
                     <div class="card-header">
                         <h5 class="card-title mb-0">
                             <i class="fas fa-upload me-2"></i>
-                            Upload WebM File
+                            Upload Files
                         </h5>
                     </div>
                     <div class="card-body">
-                        <form id="uploadForm" enctype="multipart/form-data">
-                            <div class="mb-3">
-                                <label for="fileInput" class="form-label">Select WebM file(s)</label>
-                                <input type="file" class="form-control" id="fileInput" name="files" accept=".webm,video/webm" multiple required>
-                                <div class="form-text">
-                                    Maximum file size: 500MB per file. Only WebM files are supported. You can select multiple files.
-                                </div>
+                        <ul class="nav nav-tabs" id="uploadTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="webm-tab" data-bs-toggle="tab" data-bs-target="#webm" type="button" role="tab">WebM to MP4</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="csv-tab" data-bs-toggle="tab" data-bs-target="#csv" type="button" role="tab">CSV to Video</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="uploadTabsContent">
+                            <div class="tab-pane fade show active" id="webm" role="tabpanel">
+                                <form id="uploadForm" enctype="multipart/form-data" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="fileInput" class="form-label">Select WebM file(s)</label>
+                                        <input type="file" class="form-control" id="fileInput" name="files" accept=".webm,video/webm" multiple required>
+                                        <div class="form-text">
+                                            Maximum file size: 500MB per file. Only WebM files are supported. You can select multiple files.
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="bulkModeCheckbox">
+                                            <label class="form-check-label" for="bulkModeCheckbox">
+                                                Enable Bulk Conversion Mode
+                                            </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="d-grid">
+                                        <button type="submit" class="btn btn-primary" id="convertBtn">
+                                            <i class="fas fa-sync-alt me-2"></i>
+                                            Convert to MP4
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
-                            
-                            <div class="mb-3">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="bulkModeCheckbox">
-                                    <label class="form-check-label" for="bulkModeCheckbox">
-                                        Enable Bulk Conversion Mode
-                                    </label>
-                                </div>
+                            <div class="tab-pane fade" id="csv" role="tabpanel">
+                                <form id="csvUploadForm" enctype="multipart/form-data" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="csvFileInput" class="form-label">Select CSV file</label>
+                                        <input type="file" class="form-control" id="csvFileInput" name="file" accept=".csv,text/csv" required>
+                                        <div class="form-text">
+                                            Upload a CSV file containing image URLs to create a video slideshow. Maximum file size: 500MB.
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="durationInput" class="form-label">Duration per image (seconds)</label>
+                                        <input type="number" class="form-control" id="durationInput" name="duration" min="1" max="30" value="3">
+                                        <div class="form-text">
+                                            How long each image should be displayed in the video (1-30 seconds).
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="d-grid">
+                                        <button type="submit" class="btn btn-primary" id="csvConvertBtn">
+                                            <i class="fas fa-film me-2"></i>
+                                            Create Video from CSV
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
-                            
-                            <div class="d-grid">
-                                <button type="submit" class="btn btn-primary" id="convertBtn">
-                                    <i class="fas fa-sync-alt me-2"></i>
-                                    Convert to MP4
-                                </button>
-                            </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
 
@@ -154,35 +192,80 @@
                         </h6>
                     </div>
                     <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-4 text-center mb-3">
-                                <i class="fas fa-upload fa-2x text-primary mb-2"></i>
-                                <h6>1. Upload</h6>
-                                <small class="text-muted">Select your WebM video file</small>
+                        <ul class="nav nav-tabs" id="howItWorksTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="webm-howto-tab" data-bs-toggle="tab" data-bs-target="#webm-howto" type="button" role="tab">WebM to MP4</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="csv-howto-tab" data-bs-toggle="tab" data-bs-target="#csv-howto" type="button" role="tab">CSV to Video</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="howItWorksTabsContent">
+                            <div class="tab-pane fade show active" id="webm-howto" role="tabpanel">
+                                <div class="row">
+                                    <div class="col-md-4 text-center mb-3">
+                                        <i class="fas fa-upload fa-2x text-primary mb-2"></i>
+                                        <h6>1. Upload</h6>
+                                        <small class="text-muted">Select your WebM video file</small>
+                                    </div>
+                                    <div class="col-md-4 text-center mb-3">
+                                        <i class="fas fa-cogs fa-2x text-primary mb-2"></i>
+                                        <h6>2. Convert</h6>
+                                        <small class="text-muted">We process your file using FFmpeg</small>
+                                    </div>
+                                    <div class="col-md-4 text-center mb-3">
+                                        <i class="fas fa-download fa-2x text-primary mb-2"></i>
+                                        <h6>3. Download</h6>
+                                        <small class="text-muted">Get your converted MP4 file</small>
+                                    </div>
+                                </div>
+                                
+                                <hr>
+                                
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <h6>Features:</h6>
+                                        <ul class="list-unstyled">
+                                            <li><i class="fas fa-check text-success me-2"></i>High-quality video conversion</li>
+                                            <li><i class="fas fa-check text-success me-2"></i>Preserves original video quality</li>
+                                            <li><i class="fas fa-check text-success me-2"></i>Automatic file cleanup</li>
+                                            <li><i class="fas fa-check text-success me-2"></i>No file storage - privacy focused</li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="col-md-4 text-center mb-3">
-                                <i class="fas fa-cogs fa-2x text-primary mb-2"></i>
-                                <h6>2. Convert</h6>
-                                <small class="text-muted">We process your file using FFmpeg</small>
-                            </div>
-                            <div class="col-md-4 text-center mb-3">
-                                <i class="fas fa-download fa-2x text-primary mb-2"></i>
-                                <h6>3. Download</h6>
-                                <small class="text-muted">Get your converted MP4 file</small>
-                            </div>
-                        </div>
-                        
-                        <hr>
-                        
-                        <div class="row mt-3">
-                            <div class="col-12">
-                                <h6>Features:</h6>
-                                <ul class="list-unstyled">
-                                    <li><i class="fas fa-check text-success me-2"></i>High-quality video conversion</li>
-                                    <li><i class="fas fa-check text-success me-2"></i>Preserves original video quality</li>
-                                    <li><i class="fas fa-check text-success me-2"></i>Automatic file cleanup</li>
-                                    <li><i class="fas fa-check text-success me-2"></i>No file storage - privacy focused</li>
-                                </ul>
+                            <div class="tab-pane fade" id="csv-howto" role="tabpanel">
+                                <div class="row">
+                                    <div class="col-md-4 text-center mb-3">
+                                        <i class="fas fa-upload fa-2x text-primary mb-2"></i>
+                                        <h6>1. Upload</h6>
+                                        <small class="text-muted">Select your CSV file with image URLs</small>
+                                    </div>
+                                    <div class="col-md-4 text-center mb-3">
+                                        <i class="fas fa-cogs fa-2x text-primary mb-2"></i>
+                                        <h6>2. Process</h6>
+                                        <small class="text-muted">We download images and create a slideshow video</small>
+                                    </div>
+                                    <div class="col-md-4 text-center mb-3">
+                                        <i class="fas fa-download fa-2x text-primary mb-2"></i>
+                                        <h6>3. Download</h6>
+                                        <small class="text-muted">Get your generated MP4 video</small>
+                                    </div>
+                                </div>
+                                
+                                <hr>
+                                
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <h6>Features:</h6>
+                                        <ul class="list-unstyled">
+                                            <li><i class="fas fa-check text-success me-2"></i>Create videos from image URLs in CSV</li>
+                                            <li><i class="fas fa-check text-success me-2"></i>Customizable duration per image</li>
+                                            <li><i class="fas fa-check text-success me-2"></i>Automatic file cleanup</li>
+                                            <li><i class="fas fa-check text-success me-2"></i>No file storage - privacy focused</li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -199,91 +282,126 @@
                     <div class="card-body">
                         <p class="text-muted mb-3">Use our REST API to integrate video conversion into your applications</p>
                         
-                        <!-- API Endpoints -->
-                        <div class="row">
-                            <div class="col-12">
-                                <h6 class="text-primary">Endpoints:</h6>
-                                
-                                <!-- Convert Endpoint -->
-                                <div class="mb-4">
-                                    <h6 class="h6"><i class="fas fa-upload text-success me-2"></i>Convert WebM to MP4</h6>
-                                    <div class="bg-dark p-3 rounded mb-2">
-                                        <code class="text-light">POST /api/convert</code>
-                                    </div>
-                                    <p class="small text-muted mb-2">Content-Type: multipart/form-data</p>
-                                    
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <strong>Request:</strong>
-                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -X POST \
+                                <!-- API Endpoints -->
+                                <div class="row">
+                                    <div class="col-12">
+                                        <h6 class="text-primary">Endpoints:</h6>
+                                        
+                                        <!-- Convert Endpoint -->
+                                        <div class="mb-4">
+                                            <h6 class="h6"><i class="fas fa-upload text-success me-2"></i>Convert WebM to MP4</h6>
+                                            <div class="bg-dark p-3 rounded mb-2">
+                                                <code class="text-light">POST /api/convert</code>
+                                            </div>
+                                            <p class="small text-muted mb-2">Content-Type: multipart/form-data</p>
+                                            
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <strong>Request:</strong>
+                                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -X POST \
   -F "file=@video.webm" \
   {{ request.url_root }}api/convert</code></pre>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <strong>Response:</strong>
-                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>{
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <strong>Response:</strong>
+                                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>{
   "success": true,
   "file_id": "uuid-string",
   "download_url": "/api/download/uuid"
 }</code></pre>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Download Endpoint -->
-                                <div class="mb-4">
-                                    <h6 class="h6"><i class="fas fa-download text-info me-2"></i>Download Converted File</h6>
-                                    <div class="bg-dark p-3 rounded mb-2">
-                                        <code class="text-light">GET /api/download/&lt;file_id&gt;</code>
-                                    </div>
-                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -O {{ request.url_root }}api/download/your-file-id</code></pre>
-                                </div>
-                                
-                                <!-- Status Endpoint -->
-                                <div class="mb-4">
-                                    <h6 class="h6"><i class="fas fa-heartbeat text-warning me-2"></i>Service Status</h6>
-                                    <div class="bg-dark p-3 rounded mb-2">
-                                        <code class="text-light">GET /api/status</code>
-                                    </div>
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <strong>Request:</strong>
-                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>curl {{ request.url_root }}api/status</code></pre>
+                                        
+                                        <!-- CSV to Video Endpoint -->
+                                        <div class="mb-4">
+                                            <h6 class="h6"><i class="fas fa-file-csv text-success me-2"></i>Create Video from CSV</h6>
+                                            <div class="bg-dark p-3 rounded mb-2">
+                                                <code class="text-light">POST /api/csv-to-video</code>
+                                            </div>
+                                            <p class="small text-muted mb-2">Content-Type: multipart/form-data</p>
+                                            
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <strong>Request:</strong>
+                                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -X POST \
+  -F "file=@data.csv" \
+  {{ request.url_root }}api/csv-to-video</code></pre>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <strong>Response:</strong>
+                                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>{
+  "success": true,
+  "file_id": "uuid-string",
+  "download_url": "/api/download-video/uuid"
+}</code></pre>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div class="col-md-6">
-                                            <strong>Response:</strong>
-                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>{
+                                        
+                                        <!-- Download Endpoint -->
+                                        <div class="mb-4">
+                                            <h6 class="h6"><i class="fas fa-download text-info me-2"></i>Download Converted File</h6>
+                                            <div class="bg-dark p-3 rounded mb-2">
+                                                <code class="text-light">GET /api/download/<file_id></code>
+                                            </div>
+                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -O {{ request.url_root }}api/download/your-file-id</code></pre>
+                                        </div>
+                                        
+                                        <!-- Download Video Endpoint -->
+                                        <div class="mb-4">
+                                            <h6 class="h6"><i class="fas fa-download text-info me-2"></i>Download Generated Video</h6>
+                                            <div class="bg-dark p-3 rounded mb-2">
+                                                <code class="text-light">GET /api/download-video/<file_id></code>
+                                            </div>
+                                            <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -O {{ request.url_root }}api/download-video/your-file-id</code></pre>
+                                        </div>
+                                        
+                                        <!-- Status Endpoint -->
+                                        <div class="mb-4">
+                                            <h6 class="h6"><i class="fas fa-heartbeat text-warning me-2"></i>Service Status</h6>
+                                            <div class="bg-dark p-3 rounded mb-2">
+                                                <code class="text-light">GET /api/status</code>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <strong>Request:</strong>
+                                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>curl {{ request.url_root }}api/status</code></pre>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <strong>Response:</strong>
+                                                    <pre class="bg-light text-dark p-2 mt-2 small"><code>{
   "status": "online",
   "ffmpeg_available": true,
   "max_file_size_mb": 500
 }</code></pre>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- API Limits -->
-                                <hr>
-                                <div class="mt-3">
-                                    <h6>API Limits:</h6>
-                                    <ul class="list-unstyled">
-                                        <li><i class="fas fa-weight-hanging text-primary me-2"></i>Max file size: 500MB</li>
-                                        <li><i class="fas fa-file-video text-primary me-2"></i>Supported format: WebM only</li>
-                                        <li><i class="fas fa-clock text-primary me-2"></i>Conversion timeout: 10 minutes</li>
-                                        <li><i class="fas fa-trash text-primary me-2"></i>Files auto-deleted after download</li>
-                                    </ul>
-                                </div>
-                                
-                                <!-- JavaScript Example -->
-                                <hr>
-                                <div class="mt-3">
-                                    <h6>JavaScript Example:</h6>
-                                    <pre class="bg-dark text-light p-3 rounded small"><code>// Convert file using JavaScript
-const formData = new FormData();
-formData.append('file', fileInput.files[0]);
+                                        
+                                        <!-- API Limits -->
+                                        <hr>
+                                        <div class="mt-3">
+                                            <h6>API Limits:</h6>
+                                            <ul class="list-unstyled">
+                                                <li><i class="fas fa-weight-hanging text-primary me-2"></i>Max file size: 500MB</li>
+                                                <li><i class="fas fa-file-video text-primary me-2"></i>Supported formats: WebM, CSV</li>
+                                                <li><i class="fas fa-clock text-primary me-2"></i>Conversion timeout: 10 minutes</li>
+                                                <li><i class="fas fa-trash text-primary me-2"></i>Files auto-deleted after download</li>
+                                            </ul>
+                                        </div>
+                                        
+                                        <!-- JavaScript Example -->
+                                        <hr>
+                                        <div class="mt-3">
+                                            <h6>JavaScript Examples:</h6>
+                                            <pre class="bg-dark text-light p-3 rounded small"><code>// Convert WebM file using JavaScript
+const webmFormData = new FormData();
+webmFormData.append('file', webmFileInput.files[0]);
 
 fetch('/api/convert', {
     method: 'POST',
-    body: formData
+    body: webmFormData
 })
 .then(response => response.json())
 .then(data => {
@@ -291,10 +409,26 @@ fetch('/api/convert', {
         // Download converted file
         window.location = data.download_url;
     }
+});
+
+// Create video from CSV using JavaScript
+const csvFormData = new FormData();
+csvFormData.append('file', csvFileInput.files[0]);
+
+fetch('/api/csv-to-video', {
+    method: 'POST',
+    body: csvFormData
+})
+.then(response => response.json())
+.then(data => {
+    if (data.success) {
+        // Download generated video
+        window.location = data.download_url;
+    }
 });</code></pre>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>

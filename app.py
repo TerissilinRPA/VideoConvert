@@ -5,6 +5,8 @@ import tempfile
 import threading
 import queue
 import time
+import csv
+import requests
 from pathlib import Path
 
 import subprocess
@@ -133,7 +135,7 @@ def after_request(response):
 # Configuration
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size
 UPLOAD_FOLDER = tempfile.gettempdir()
-ALLOWED_EXTENSIONS = {'webm'}
+ALLOWED_EXTENSIONS = {'webm', 'csv'}
 
 def allowed_file(filename):
     """Check if the uploaded file has an allowed extension."""
@@ -215,6 +217,139 @@ def cleanup_file(file_path):
             logger.info(f"Cleaned up file: {file_path}")
     except Exception as e:
         logger.error(f"Error cleaning up file {file_path}: {str(e)}")
+
+def download_image(url, save_path):
+    """Download an image from a URL and save it to the specified path."""
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        with open(save_path, 'wb') as f:
+            f.write(response.content)
+            
+        return True, "Image downloaded successfully"
+    except Exception as e:
+        logger.error(f"Error downloading image from {url}: {str(e)}")
+        return False, f"Error downloading image: {str(e)}"
+
+def create_video_from_images(image_paths, output_path, duration_per_image=3):
+    """Create a video slideshow from a list of image paths using ffmpeg."""
+    try:
+        # Create a temporary text file with the list of images
+        temp_file = os.path.join(UPLOAD_FOLDER, f"temp_{uuid.uuid4()}.txt")
+        
+        with open(temp_file, 'w') as f:
+            for image_path in image_paths:
+                # Each image will be shown for duration_per_image seconds
+                f.write(f"file '{image_path}'\nduration {duration_per_image}\n")
+            # Add the last image again to ensure it's shown for the full duration
+            f.write(f"file '{image_paths[-1]}'\n")
+        
+        # Use ffmpeg to create the video
+        cmd = [
+            'ffmpeg',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', temp_file,
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
+            '-c:v', 'libx264',
+            '-r', '30',
+            '-pix_fmt', 'yuv420p',
+            '-y',
+            output_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        
+        # Clean up the temporary file
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        
+        if result.returncode != 0:
+            error_msg = f"FFmpeg video creation failed: {result.stderr}"
+            logger.error(error_msg)
+            return False, error_msg
+        
+        logger.info(f"Video created successfully: {output_path}")
+        return True, "Video created successfully"
+        
+    except subprocess.TimeoutExpired:
+        error_msg = "Video creation timed out"
+        logger.error(error_msg)
+        return False, error_msg
+    except Exception as e:
+        error_msg = f"Video creation error: {str(e)}"
+        logger.error(error_msg)
+        return False, error_msg
+
+def process_csv_and_create_video(csv_path, output_path, duration_per_image=3):
+    """Process a CSV file and create a video from the images."""
+    try:
+        image_paths = []
+        temp_image_dir = os.path.join(UPLOAD_FOLDER, f"temp_images_{uuid.uuid4()}")
+        os.makedirs(temp_image_dir, exist_ok=True)
+        
+        # Read the CSV file
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            # Try to detect the dialect
+            sample = f.read(1024)
+            f.seek(0)
+            sniffer = csv.Sniffer()
+            dialect = sniffer.sniff(sample)
+            has_header = sniffer.has_header(sample)
+            
+            reader = csv.reader(f, dialect)
+            
+            # Skip header if present
+            if has_header:
+                headers = next(reader)
+            else:
+                headers = None
+                
+            # Find image URL columns (look for columns with 'image' or 'url' in the name)
+            image_columns = []
+            if headers:
+                for i, header in enumerate(headers):
+                    header_lower = header.lower()
+                    if 'image' in header_lower or 'url' in header_lower:
+                        image_columns.append(i)
+            else:
+                # If no headers, assume the first few columns might be image URLs
+                # This is a fallback and might need adjustment based on the actual CSV structure
+                image_columns = [19, 20, 21, 22, 23, 24]  # Based on the example CSV structure
+            
+            # Process each row
+            for row_num, row in enumerate(reader):
+                # Process image columns for this row
+                for col_index in image_columns:
+                    if col_index < len(row):
+                        image_url = row[col_index].strip()
+                        # Check if it looks like a URL
+                        if image_url.startswith('http') and not image_url.lower().endswith('.mp4'):
+                            # Download the image
+                            image_filename = f"image_{row_num}_{col_index}.jpg"
+                            image_path = os.path.join(temp_image_dir, image_filename)
+                            
+                            success, message = download_image(image_url, image_path)
+                            if success and os.path.exists(image_path):
+                                image_paths.append(image_path)
+        
+        # If we have images, create the video
+        if image_paths:
+            success, message = create_video_from_images(image_paths, output_path, duration_per_image)
+            # Clean up downloaded images
+            for image_path in image_paths:
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+            os.rmdir(temp_image_dir)
+            return success, message
+        else:
+            os.rmdir(temp_image_dir)
+            return False, "No valid image URLs found in CSV file"
+            
+    except Exception as e:
+        logger.error(f"Error processing CSV file: {str(e)}")
+        return False, f"Error processing CSV file: {str(e)}"
 
 @app.route('/')
 def index():
@@ -307,7 +442,12 @@ def download_file(file_id):
         
         # Use the original filename with .mp4 extension for download
         original_filename = queue_status.get(file_id, {}).get('filename', f'converted_{file_id}.mp4')
-        download_name = os.path.splitext(original_filename)[0] + '.mp4'
+        # If it's a CSV file, change the base name to indicate it's a video
+        if original_filename.lower().endswith('.csv'):
+            base_name = os.path.splitext(original_filename)[0]
+            download_name = f"{base_name}_video.mp4"
+        else:
+            download_name = os.path.splitext(original_filename)[0] + '.mp4'
         
         return send_file(
             output_path,
@@ -341,7 +481,7 @@ def api_status():
         'status': 'online',
         'ffmpeg_available': ffmpeg_available,
         'max_file_size_mb': app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024),
-        'supported_formats': ['webm'],
+        'supported_formats': ['webm', 'csv'],
         'queue_size': queue_size,
         'active_jobs': active_jobs
     })
@@ -445,6 +585,100 @@ def get_queue_status():
         })
     except Exception as e:
         logger.error(f"Queue status error: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/api/csv-to-video', methods=['POST'])
+def csv_to_video():
+    """API endpoint for creating videos from CSV files with image URLs."""
+    try:
+        # Check if file is present in request
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type. Only CSV files are allowed'}), 400
+        
+        # Get duration parameter (default to 3 seconds)
+        duration = int(request.form.get('duration', 3))
+        if duration < 1 or duration > 30:
+            duration = 3
+        
+        # Generate unique filenames
+        file_id = str(uuid.uuid4())
+        original_filename = secure_filename(file.filename or 'unknown.csv')
+        # Create output filename with same name but .mp4 extension
+        output_name = os.path.splitext(original_filename)[0] + '.mp4'
+        input_filename = f"{file_id}_input.csv"
+        output_filename = f"{file_id}_output.mp4"
+        
+        input_path = os.path.join(UPLOAD_FOLDER, input_filename)
+        output_path = os.path.join(UPLOAD_FOLDER, output_filename)
+        
+        # Save uploaded file
+        file.save(input_path)
+        logger.info(f"CSV file uploaded: {input_path}")
+        
+        # Process the CSV and create video
+        success, message = process_csv_and_create_video(input_path, output_path, duration)
+        
+        # Clean up input file
+        cleanup_file(input_path)
+        
+        if not success:
+            cleanup_file(output_path)
+            return jsonify({'error': message}), 500
+        
+        # Check if output file was created
+        if not os.path.exists(output_path):
+            return jsonify({'error': 'Video creation failed - output file not created'}), 500
+        
+        return jsonify({
+            'success': True,
+            'message': 'Video created successfully',
+            'file_id': file_id,
+            'original_filename': original_filename,
+            'download_url': f"/api/download-video/{file_id}"
+        })
+        
+    except RequestEntityTooLarge:
+        return jsonify({'error': 'File too large. Maximum size is 500MB'}), 413
+    except Exception as e:
+        logger.error(f"CSV to video error: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/api/download-video/<file_id>')
+def download_video(file_id):
+    """Download generated video file."""
+    try:
+        # Validate file_id format (should be a valid UUID)
+        uuid.UUID(file_id)
+        
+        output_filename = f"{file_id}_output.mp4"
+        output_path = os.path.join(UPLOAD_FOLDER, output_filename)
+        
+        if not os.path.exists(output_path):
+            return jsonify({'error': 'File not found or has been cleaned up'}), 404
+        
+        # Use the original filename with .mp4 extension for download
+        original_filename = f"video_{file_id}.mp4"
+        download_name = os.path.splitext(original_filename)[0] + '.mp4'
+        
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='video/mp4'
+        )
+        
+    except ValueError:
+        return jsonify({'error': 'Invalid file ID'}), 400
+    except Exception as e:
+        logger.error(f"Video download error: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.errorhandler(413)

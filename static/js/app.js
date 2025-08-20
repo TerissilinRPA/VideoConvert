@@ -17,6 +17,12 @@ class VideoConverter {
             this.handleFileUpload();
         });
 
+        // CSV form submission
+        document.getElementById('csvUploadForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleCsvUpload();
+        });
+
         // Download button
         document.getElementById('downloadBtn').addEventListener('click', () => {
             this.downloadFile();
@@ -35,6 +41,11 @@ class VideoConverter {
         // File input change
         document.getElementById('fileInput').addEventListener('change', (e) => {
             this.handleFileInputChange(e.target);
+        });
+
+        // CSV file input change
+        document.getElementById('csvFileInput').addEventListener('change', (e) => {
+            this.handleCsvFileInputChange(e.target);
         });
 
         // Bulk mode checkbox
@@ -85,6 +96,133 @@ class VideoConverter {
         }
 
         return true;
+    }
+
+    handleCsvFileInputChange(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        // Validate CSV file
+        if (!this.validateCsvFile(file)) {
+            input.value = ''; // Clear invalid selection
+            return;
+        }
+    }
+
+    validateCsvFile(file) {
+        // Check file size (500MB limit)
+        const maxSize = 500 * 1024 * 1024; // 500MB in bytes
+        if (file.size > maxSize) {
+            this.showToast(`File "${file.name}" is too large. Maximum size is 500MB.`, 'error');
+            return false;
+        }
+
+        // Check file type
+        if (!file.type.includes('csv') && !file.name.toLowerCase().endsWith('.csv')) {
+            this.showToast(`File "${file.name}" is not a valid CSV file.`, 'error');
+            return false;
+        }
+
+        return true;
+    }
+
+    async handleCsvUpload() {
+        const csvFileInput = document.getElementById('csvFileInput');
+        const durationInput = document.getElementById('durationInput');
+        const file = csvFileInput.files[0];
+        const duration = parseInt(durationInput.value) || 3;
+
+        if (!file) {
+            this.showToast('Please select a CSV file first.', 'error');
+            return;
+        }
+
+        // Validate file
+        if (!this.validateCsvFile(file)) {
+            return;
+        }
+
+        // Show progress
+        this.showProgress();
+        this.disableCsvForm();
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('duration', duration);
+
+        try {
+            const response = await axios.post('/api/csv-to-video', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                },
+                timeout: 300000 // 5 minutes timeout
+            });
+
+            const data = response.data;
+            
+            if (data.success) {
+                this.currentFileId = data.file_id;
+                this.downloadUrl = data.download_url;
+                this.showCsvSuccess(data.original_filename);
+            } else {
+                this.showError(data.error || 'Video creation failed');
+            }
+        } catch (error) {
+            console.error('CSV upload error:', error);
+            
+            if (error.response) {
+                // Server responded with error status
+                const errorMessage = error.response.data.error || `Server error: ${error.response.status}`;
+                this.showError(errorMessage);
+            } else if (error.code === 'ECONNABORTED') {
+                // Timeout
+                this.showError('Video creation timed out. The file may be too large or complex.');
+            } else {
+                // Network or other error
+                this.showError('Network error. Please check your connection and try again.');
+            }
+        } finally {
+            this.hideProgress();
+            this.enableCsvForm();
+        }
+    }
+
+    showCsvSuccess(originalFilename) {
+        const resultsCard = document.getElementById('resultsCard');
+        const successResult = document.getElementById('successResult');
+        const errorResult = document.getElementById('errorResult');
+
+        resultsCard.classList.remove('d-none');
+        successResult.classList.remove('d-none');
+        errorResult.classList.add('d-none');
+
+        // Update success message with filename
+        const cardText = successResult.querySelector('.card-text');
+        cardText.textContent = `Your video has been successfully created from the CSV file "${originalFilename}".`;
+        
+        // Update the title to reflect CSV to video conversion
+        const cardTitle = successResult.querySelector('.card-title');
+        cardTitle.innerHTML = '<i class="fas fa-check-circle me-2"></i> Video Creation Successful!';
+    }
+
+    disableCsvForm() {
+        document.getElementById('csvConvertBtn').disabled = true;
+        document.getElementById('csvFileInput').disabled = true;
+        document.getElementById('durationInput').disabled = true;
+        document.getElementById('csvConvertBtn').innerHTML = `
+            <i class="fas fa-spinner fa-spin me-2"></i>
+            Processing...
+        `;
+    }
+
+    enableCsvForm() {
+        document.getElementById('csvConvertBtn').disabled = false;
+        document.getElementById('csvFileInput').disabled = false;
+        document.getElementById('durationInput').disabled = false;
+        document.getElementById('csvConvertBtn').innerHTML = `
+            <i class="fas fa-film me-2"></i>
+            Create Video from CSV
+        `;
     }
 
     toggleBulkMode(enabled) {
@@ -257,7 +395,7 @@ class VideoConverter {
 
         // Update success message with filename
         const cardText = successResult.querySelector('.card-text');
-        cardText.textContent = `Your WebM file "${originalFilename}" has been successfully converted to MP4.`;
+        cardText.textContent = `Your file "${originalFilename}" has been successfully processed.`;
     }
 
     showBulkSuccess(data) {

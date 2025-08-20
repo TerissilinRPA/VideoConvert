@@ -16,7 +16,12 @@ from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 
 # Import Google Cloud Text-to-Speech
-from google.cloud import texttospeech
+try:
+    from google.cloud import texttospeech
+    GOOGLE_CLOUD_AVAILABLE = True
+except ImportError:
+    GOOGLE_CLOUD_AVAILABLE = False
+    texttospeech = None
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -223,6 +228,11 @@ def cleanup_file(file_path):
 
 def synthesize_speech(text, output_path, language_code="en-US", voice_name="en-US-Standard-C"):
     """Synthesize speech from text using Google Cloud Text-to-Speech."""
+    # Check if Google Cloud Text-to-Speech is available
+    if not GOOGLE_CLOUD_AVAILABLE or texttospeech is None:
+        logger.warning("Google Cloud Text-to-Speech not available. Skipping speech synthesis.")
+        return False, "Google Cloud Text-to-Speech not available"
+    
     try:
         # Initialize the Text-to-Speech client
         client = texttospeech.TextToSpeechClient()

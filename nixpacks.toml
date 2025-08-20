@@ -12,7 +12,7 @@ nixPkgs = ["python311", "ffmpeg", "pkg-config"]
 
 [phases.install]
 # Install your app (reads pyproject.toml / setup.cfg if present)
-cmd = "pip install --no-cache-dir -e ."
+cmd = "pip install --no-cache-dir -r requirements.txt"
 
 [phases.build]
 # Optional: no build step for a plain Flask app

@@ -26,6 +26,10 @@ conversion_queue = queue.Queue()
 queue_status = {}  # Track status of each file in queue
 queue_lock = threading.Lock()
 
+# Clear queue status on startup
+with queue_lock:
+    queue_status.clear()
+
 # Configuration for concurrent processing
 MAX_CONCURRENT_CONVERSIONS = 2
 active_conversions = 0
@@ -232,6 +236,8 @@ def convert_video():
         # Generate unique filenames
         file_id = str(uuid.uuid4())
         original_filename = secure_filename(file.filename or 'unknown.webm')
+        # Create output filename with same name but .mp4 extension
+        output_name = os.path.splitext(original_filename)[0] + '.mp4'
         input_filename = f"{file_id}_input.webm"
         output_filename = f"{file_id}_output.mp4"
         
@@ -295,10 +301,14 @@ def download_file(file_id):
             cleanup_file(output_path)
             return response
         
+        # Use the original filename with .mp4 extension for download
+        original_filename = queue_status.get(file_id, {}).get('filename', f'converted_{file_id}.mp4')
+        download_name = os.path.splitext(original_filename)[0] + '.mp4'
+        
         return send_file(
             output_path,
             as_attachment=True,
-            download_name=f"converted_{file_id}.mp4",
+            download_name=download_name,
             mimetype='video/mp4'
         )
         
@@ -363,6 +373,8 @@ def bulk_convert_videos():
             # Generate unique filenames
             file_id = str(uuid.uuid4())
             original_filename = secure_filename(file.filename or 'unknown.webm')
+            # Create output filename with same name but .mp4 extension
+            output_name = os.path.splitext(original_filename)[0] + '.mp4'
             input_filename = f"{file_id}_input.webm"
             output_filename = f"{file_id}_output.mp4"
             

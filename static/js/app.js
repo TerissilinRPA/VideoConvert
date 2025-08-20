@@ -389,9 +389,6 @@ class VideoConverter {
         this.queueInterval = setInterval(() => {
             this.updateQueueStatus();
         }, 5000);
-        
-        // Initial update
-        this.updateQueueStatus();
     }
 
     async updateQueueStatus() {
@@ -462,9 +459,12 @@ class VideoConverter {
         
         // Format filename (truncate if too long)
         const filename = status.filename || fileId;
-        const displayFilename = filename.length > 30 
-            ? filename.substring(0, 27) + '...' 
-            : filename;
+        // Get the base filename without the extension and add .mp4
+        const baseName = filename.substring(0, filename.lastIndexOf('.')) || filename;
+        const mp4Filename = baseName + '.mp4';
+        const displayFilename = mp4Filename.length > 30 
+            ? mp4Filename.substring(0, 27) + '...' 
+            : mp4Filename;
         
         itemDiv.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">

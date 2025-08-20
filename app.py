@@ -2,6 +2,9 @@ import os
 import uuid
 import logging
 import tempfile
+import threading
+import queue
+import time
 from pathlib import Path
 
 import subprocess
@@ -17,6 +20,98 @@ logger = logging.getLogger(__name__)
 # Create the Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key-change-in-production")
+
+# Queue system for bulk conversion
+conversion_queue = queue.Queue()
+queue_status = {}  # Track status of each file in queue
+queue_lock = threading.Lock()
+
+# Configuration for concurrent processing
+MAX_CONCURRENT_CONVERSIONS = 2
+active_conversions = 0
+active_conversions_lock = threading.Lock()
+
+def update_queue_status(file_id, status, message=None, download_url=None):
+    """Update the status of a file in the queue."""
+    with queue_lock:
+        if file_id not in queue_status:
+            queue_status[file_id] = {
+                'status': status,
+                'message': message or '',
+                'download_url': download_url,
+                'timestamp': time.time()
+            }
+        else:
+            queue_status[file_id]['status'] = status
+            if message:
+                queue_status[file_id]['message'] = message
+            if download_url:
+                queue_status[file_id]['download_url'] = download_url
+            queue_status[file_id]['timestamp'] = time.time()
+
+def process_conversion_queue():
+    """Worker function to process conversion queue."""
+    global active_conversions
+    
+    while True:
+        try:
+            # Get item from queue (blocking)
+            item = conversion_queue.get()
+            if item is None:  # Sentinel to stop worker
+                break
+                
+            file_id = item['file_id']
+            input_path = item['input_path']
+            output_path = item['output_path']
+            original_filename = item['original_filename']
+            
+            # Update status to processing
+            update_queue_status(file_id, 'processing', 'Conversion in progress...')
+            
+            # Check if we can start a new conversion
+            with active_conversions_lock:
+                if active_conversions >= MAX_CONCURRENT_CONVERSIONS:
+                    # Put back in queue and wait
+                    conversion_queue.put(item)
+                    time.sleep(1)
+                    continue
+                active_conversions += 1
+            
+            try:
+                # Convert the file
+                success, message = convert_webm_to_mp4(input_path, output_path)
+                
+                if success:
+                    update_queue_status(
+                        file_id, 
+                        'completed', 
+                        'Conversion completed successfully',
+                        f"/api/download/{file_id}"
+                    )
+                else:
+                    update_queue_status(file_id, 'error', message)
+                    
+            except Exception as e:
+                logger.error(f"Error processing file {file_id}: {str(e)}")
+                update_queue_status(file_id, 'error', f"Processing error: {str(e)}")
+            finally:
+                # Clean up input file
+                cleanup_file(input_path)
+                
+                # Decrement active conversions
+                with active_conversions_lock:
+                    active_conversions -= 1
+                    
+                # Mark task as done
+                conversion_queue.task_done()
+                
+        except Exception as e:
+            logger.error(f"Queue processing error: {str(e)}")
+            time.sleep(1)
+
+# Start queue processing worker thread
+queue_worker = threading.Thread(target=process_conversion_queue, daemon=True)
+queue_worker.start()
 
 
 # Add CORS headers to all responses
@@ -223,12 +318,118 @@ def api_status():
     except Exception:
         ffmpeg_available = False
     
+    # Get queue status
+    with queue_lock:
+        queue_size = conversion_queue.qsize()
+        active_jobs = len(queue_status)
+    
     return jsonify({
         'status': 'online',
         'ffmpeg_available': ffmpeg_available,
         'max_file_size_mb': app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024),
-        'supported_formats': ['webm']
+        'supported_formats': ['webm'],
+        'queue_size': queue_size,
+        'active_jobs': active_jobs
     })
+
+@app.route('/api/bulk-convert', methods=['POST'])
+def bulk_convert_videos():
+    """API endpoint for bulk converting webm to mp4."""
+    try:
+        # Check if files are present in request
+        if 'files' not in request.files:
+            return jsonify({'error': 'No files provided'}), 400
+        
+        files = request.files.getlist('files')
+        
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({'error': 'No files selected'}), 400
+        
+        # Validate files and add to queue
+        queued_files = []
+        rejected_files = []
+        
+        for file in files:
+            if file.filename == '':
+                continue
+                
+            if not allowed_file(file.filename):
+                rejected_files.append({
+                    'filename': file.filename,
+                    'reason': 'Invalid file type. Only WebM files are allowed'
+                })
+                continue
+            
+            # Generate unique filenames
+            file_id = str(uuid.uuid4())
+            original_filename = secure_filename(file.filename or 'unknown.webm')
+            input_filename = f"{file_id}_input.webm"
+            output_filename = f"{file_id}_output.mp4"
+            
+            input_path = os.path.join(UPLOAD_FOLDER, input_filename)
+            output_path = os.path.join(UPLOAD_FOLDER, output_filename)
+            
+            # Save uploaded file
+            file.save(input_path)
+            logger.info(f"File uploaded: {input_path}")
+            
+            # Validate the uploaded file
+            is_valid, validation_message = validate_webm_file(input_path)
+            if not is_valid:
+                cleanup_file(input_path)
+                rejected_files.append({
+                    'filename': original_filename,
+                    'reason': validation_message
+                })
+                continue
+            
+            # Add to conversion queue
+            conversion_queue.put({
+                'file_id': file_id,
+                'input_path': input_path,
+                'output_path': output_path,
+                'original_filename': original_filename
+            })
+            
+            # Initialize queue status
+            update_queue_status(file_id, 'queued', 'Waiting in queue...')
+            
+            queued_files.append({
+                'file_id': file_id,
+                'filename': original_filename
+            })
+        
+        return jsonify({
+            'success': True,
+            'message': f'{len(queued_files)} files queued for conversion, {len(rejected_files)} files rejected',
+            'queued_files': queued_files,
+            'rejected_files': rejected_files
+        })
+        
+    except RequestEntityTooLarge:
+        return jsonify({'error': 'File too large. Maximum size is 500MB'}), 413
+    except Exception as e:
+        logger.error(f"Bulk conversion error: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/api/queue-status')
+def get_queue_status():
+    """Get the status of all files in the conversion queue."""
+    try:
+        with queue_lock:
+            # Create a copy of queue status
+            status_copy = {}
+            for file_id, status_info in queue_status.items():
+                status_copy[file_id] = status_info.copy()
+        
+        return jsonify({
+            'success': True,
+            'queue_status': status_copy,
+            'queue_size': conversion_queue.qsize()
+        })
+    except Exception as e:
+        logger.error(f"Queue status error: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.errorhandler(413)
 def too_large(e):

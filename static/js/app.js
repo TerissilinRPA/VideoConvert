@@ -129,8 +129,12 @@ class VideoConverter {
     async handleCsvUpload() {
         const csvFileInput = document.getElementById('csvFileInput');
         const durationInput = document.getElementById('durationInput');
+        const languageSelect = document.getElementById('languageSelect');
+        const voiceSelect = document.getElementById('voiceSelect');
         const file = csvFileInput.files[0];
         const duration = parseInt(durationInput.value) || 3;
+        const languageCode = languageSelect.value;
+        const voiceName = voiceSelect.value;
 
         if (!file) {
             this.showToast('Please select a CSV file first.', 'error');
@@ -149,6 +153,8 @@ class VideoConverter {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('duration', duration);
+        formData.append('language_code', languageCode);
+        formData.append('voice_name', voiceName);
 
         try {
             const response = await axios.post('/api/csv-to-video', formData, {

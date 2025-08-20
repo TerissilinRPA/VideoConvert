@@ -98,6 +98,42 @@
                                         </div>
                                     </div>
                                     
+                                    <div class="mb-3">
+                                        <label for="languageSelect" class="form-label">Language</label>
+                                        <select class="form-select" id="languageSelect" name="language_code">
+                                            <option value="en-US" selected>English (United States)</option>
+                                            <option value="en-GB">English (United Kingdom)</option>
+                                            <option value="th-TH">Thai (Thailand)</option>
+                                            <option value="es-ES">Spanish (Spain)</option>
+                                            <option value="fr-FR">French (France)</option>
+                                            <option value="de-DE">German (Germany)</option>
+                                            <option value="ja-JP">Japanese (Japan)</option>
+                                            <option value="ko-KR">Korean (South Korea)</option>
+                                        </select>
+                                        <div class="form-text">
+                                            Select the language for the voice narration.
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="voiceSelect" class="form-label">Voice</label>
+                                        <select class="form-select" id="voiceSelect" name="voice_name">
+                                            <option value="en-US-Standard-C" selected>English (Standard C)</option>
+                                            <option value="en-US-Standard-D">English (Standard D)</option>
+                                            <option value="en-US-Wavenet-C">English (Wavenet C)</option>
+                                            <option value="en-US-Wavenet-D">English (Wavenet D)</option>
+                                            <option value="th-TH-Standard-A">Thai (Standard A)</option>
+                                            <option value="es-ES-Standard-A">Spanish (Standard A)</option>
+                                            <option value="fr-FR-Standard-A">French (Standard A)</option>
+                                            <option value="de-DE-Standard-A">German (Standard A)</option>
+                                            <option value="ja-JP-Standard-A">Japanese (Standard A)</option>
+                                            <option value="ko-KR-Standard-A">Korean (Standard A)</option>
+                                        </select>
+                                        <div class="form-text">
+                                            Select the voice for the narration.
+                                        </div>
+                                    </div>
+                                    
                                     <div class="d-grid">
                                         <button type="submit" class="btn btn-primary" id="csvConvertBtn">
                                             <i class="fas fa-film me-2"></i>
@@ -326,6 +362,9 @@
                                                     <strong>Request:</strong>
                                                     <pre class="bg-light text-dark p-2 mt-2 small"><code>curl -X POST \
   -F "file=@data.csv" \
+  -F "duration=3" \
+  -F "language_code=en-US" \
+  -F "voice_name=en-US-Standard-C" \
   {{ request.url_root }}api/csv-to-video</code></pre>
                                                 </div>
                                                 <div class="col-md-6">
@@ -336,6 +375,16 @@
   "download_url": "/api/download-video/uuid"
 }</code></pre>
                                                 </div>
+                                            </div>
+                                            
+                                            <div class="mt-2">
+                                                <h6>Parameters:</h6>
+                                                <ul class="list-unstyled">
+                                                    <li><strong>file</strong> (required): The CSV file containing image URLs</li>
+                                                    <li><strong>duration</strong> (optional): Duration per image in seconds (default: 3, range: 1-30)</li>
+                                                    <li><strong>language_code</strong> (optional): Language code for voice narration (default: en-US)</li>
+                                                    <li><strong>voice_name</strong> (optional): Voice name for narration (default: en-US-Standard-C)</li>
+                                                </ul>
                                             </div>
                                         </div>
                                         
@@ -414,6 +463,9 @@ fetch('/api/convert', {
 // Create video from CSV using JavaScript
 const csvFormData = new FormData();
 csvFormData.append('file', csvFileInput.files[0]);
+csvFormData.append('duration', 3);
+csvFormData.append('language_code', 'en-US');
+csvFormData.append('voice_name', 'en-US-Standard-C');
 
 fetch('/api/csv-to-video', {
     method: 'POST',

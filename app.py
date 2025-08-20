@@ -15,6 +15,9 @@ from flask import Flask, request, jsonify, render_template, send_file, flash, re
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 
+# Import Google Cloud Text-to-Speech
+from google.cloud import texttospeech
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -218,6 +221,42 @@ def cleanup_file(file_path):
     except Exception as e:
         logger.error(f"Error cleaning up file {file_path}: {str(e)}")
 
+def synthesize_speech(text, output_path, language_code="en-US", voice_name="en-US-Standard-C"):
+    """Synthesize speech from text using Google Cloud Text-to-Speech."""
+    try:
+        # Initialize the Text-to-Speech client
+        client = texttospeech.TextToSpeechClient()
+        
+        # Set the text input to be synthesized
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+        
+        # Build the voice request
+        voice = texttospeech.VoiceSelectionParams(
+            language_code=language_code,
+            name=voice_name
+        )
+        
+        # Select the type of audio file you want returned
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3
+        )
+        
+        # Perform the text-to-speech request
+        response = client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        
+        # Write the response to the output file
+        with open(output_path, "wb") as out:
+            out.write(response.audio_content)
+            logger.info(f"Audio content written to file: {output_path}")
+            
+        return True, "Speech synthesized successfully"
+        
+    except Exception as e:
+        logger.error(f"Error synthesizing speech: {str(e)}")
+        return False, f"Error synthesizing speech: {str(e)}"
+
 def download_image(url, save_path):
     """Download an image from a URL and save it to the specified path."""
     try:
@@ -232,11 +271,13 @@ def download_image(url, save_path):
         logger.error(f"Error downloading image from {url}: {str(e)}")
         return False, f"Error downloading image: {str(e)}"
 
-def create_video_from_images(image_paths, output_path, duration_per_image=3):
-    """Create a video slideshow from a list of image paths using ffmpeg."""
+def create_video_from_images(image_paths, output_path, duration_per_image=3, narration_texts=None, language_code="en-US", voice_name="en-US-Standard-C"):
+    """Create a video slideshow from a list of image paths using ffmpeg with optional voice narration."""
     try:
+        temp_dir = os.path.dirname(image_paths[0]) if image_paths else UPLOAD_FOLDER
+        
         # Create a temporary text file with the list of images
-        temp_file = os.path.join(UPLOAD_FOLDER, f"temp_{uuid.uuid4()}.txt")
+        temp_file = os.path.join(temp_dir, f"temp_{uuid.uuid4()}.txt")
         
         with open(temp_file, 'w') as f:
             for image_path in image_paths:
@@ -245,21 +286,122 @@ def create_video_from_images(image_paths, output_path, duration_per_image=3):
             # Add the last image again to ensure it's shown for the full duration
             f.write(f"file '{image_paths[-1]}'\n")
         
-        # Use ffmpeg to create the video
-        cmd = [
-            'ffmpeg',
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', temp_file,
-            '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
-            '-c:v', 'libx264',
-            '-r', '30',
-            '-pix_fmt', 'yuv420p',
-            '-y',
-            output_path
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # If narration texts are provided, create audio files and combine with video
+        if narration_texts and len(narration_texts) > 0:
+            # Create audio files for each narration text
+            audio_files = []
+            for i, text in enumerate(narration_texts):
+                if text.strip():
+                    audio_path = os.path.join(temp_dir, f"narration_{i}.mp3")
+                    success, message = synthesize_speech(text, audio_path, language_code, voice_name)
+                    if success:
+                        audio_files.append(audio_path)
+                    else:
+                        logger.warning(f"Failed to synthesize speech for text {i}: {message}")
+            
+            # If we have audio files, create a combined audio track
+            if audio_files:
+                # Create a temporary file list for audio concatenation
+                audio_list_file = os.path.join(temp_dir, f"audio_list_{uuid.uuid4()}.txt")
+                with open(audio_list_file, 'w') as f:
+                    for audio_file in audio_files:
+                        f.write(f"file '{audio_file}'\n")
+                
+                # Concatenate audio files
+                combined_audio_path = os.path.join(temp_dir, f"combined_narration_{uuid.uuid4()}.mp3")
+                cmd = [
+                    'ffmpeg',
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-i', audio_list_file,
+                    '-c', 'copy',
+                    '-y',
+                    combined_audio_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                # Clean up audio list file
+                if os.path.exists(audio_list_file):
+                    os.remove(audio_list_file)
+                
+                # Clean up individual audio files
+                for audio_file in audio_files:
+                    if os.path.exists(audio_file):
+                        os.remove(audio_file)
+                
+                if result.returncode == 0 and os.path.exists(combined_audio_path):
+                    # Use ffmpeg to create the video with audio
+                    cmd = [
+                        'ffmpeg',
+                        '-f', 'concat',
+                        '-safe', '0',
+                        '-i', temp_file,
+                        '-i', combined_audio_path,
+                        '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
+                        '-c:v', 'libx264',
+                        '-c:a', 'aac',
+                        '-strict', 'experimental',
+                        '-r', '30',
+                        '-pix_fmt', 'yuv420p',
+                        '-y',
+                        output_path
+                    ]
+                    
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                    
+                    # Clean up combined audio file
+                    if os.path.exists(combined_audio_path):
+                        os.remove(combined_audio_path)
+                else:
+                    # If audio creation failed, create video without audio
+                    logger.warning("Failed to create combined audio, creating video without audio")
+                    cmd = [
+                        'ffmpeg',
+                        '-f', 'concat',
+                        '-safe', '0',
+                        '-i', temp_file,
+                        '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
+                        '-c:v', 'libx264',
+                        '-r', '30',
+                        '-pix_fmt', 'yuv420p',
+                        '-y',
+                        output_path
+                    ]
+                    
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            else:
+                # No audio files created, create video without audio
+                cmd = [
+                    'ffmpeg',
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-i', temp_file,
+                    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
+                    '-c:v', 'libx264',
+                    '-r', '30',
+                    '-pix_fmt', 'yuv420p',
+                    '-y',
+                    output_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        else:
+            # No narration texts, create video without audio
+            cmd = [
+                'ffmpeg',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', temp_file,
+                '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
+                '-c:v', 'libx264',
+                '-r', '30',
+                '-pix_fmt', 'yuv420p',
+                '-y',
+                output_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         
         # Clean up the temporary file
         if os.path.exists(temp_file):
@@ -282,7 +424,7 @@ def create_video_from_images(image_paths, output_path, duration_per_image=3):
         logger.error(error_msg)
         return False, error_msg
 
-def process_csv_and_create_video(csv_path, duration_per_image=3):
+def process_csv_and_create_video(csv_path, duration_per_image=3, language_code="en-US", voice_name="en-US-Standard-C"):
     """Process a CSV file and create separate videos for each product from the images."""
     try:
         temp_image_dir = os.path.join(UPLOAD_FOLDER, f"temp_images_{uuid.uuid4()}")
@@ -299,23 +441,39 @@ def process_csv_and_create_video(csv_path, duration_per_image=3):
             
             reader = csv.reader(f, dialect)
             
-            # Skip header if present
+            # Get headers if present
             if has_header:
                 headers = next(reader)
             else:
                 headers = None
                 
-            # Find image URL columns (look for columns with 'image' or 'url' in the name)
+            # Find important columns
             image_columns = []
+            product_title_col = None
+            product_description_col = None
+            brand_col = None
+            price_col = None
+            
             if headers:
                 for i, header in enumerate(headers):
                     header_lower = header.lower()
                     if 'image' in header_lower or 'url' in header_lower:
                         image_columns.append(i)
+                    elif 'product title' in header_lower or 'product_title' in header_lower:
+                        product_title_col = i
+                    elif 'product description' in header_lower or 'product_description' in header_lower:
+                        product_description_col = i
+                    elif 'brand' in header_lower:
+                        brand_col = i
+                    elif 'price' in header_lower and 'currency' not in header_lower:
+                        price_col = i
             else:
-                # If no headers, assume the first few columns might be image URLs
-                # This is a fallback and might need adjustment based on the actual CSV structure
-                image_columns = [19, 20, 21, 22, 23, 24]  # Based on the example CSV structure
+                # If no headers, use default column indices based on example.csv
+                image_columns = [19, 20, 21, 22, 23, 24]  # Image URL columns
+                product_title_col = 2  # Product Title column
+                product_description_col = 20  # Product Description column
+                brand_col = 3  # Brand column
+                price_col = 4  # Current Price column
             
             # Process each row (product)
             product_videos = []
@@ -337,9 +495,60 @@ def process_csv_and_create_video(csv_path, duration_per_image=3):
                 
                 # If we have images for this product, create a video
                 if image_paths:
+                    # Extract product information for narration
+                    narration_texts = []
+                    
+                    # Get product title
+                    product_title = ""
+                    if product_title_col is not None and product_title_col < len(row):
+                        product_title = row[product_title_col].strip()
+                    
+                    # Get product description
+                    product_description = ""
+                    if product_description_col is not None and product_description_col < len(row):
+                        product_description = row[product_description_col].strip()
+                    
+                    # Get brand
+                    brand = ""
+                    if brand_col is not None and brand_col < len(row):
+                        brand = row[brand_col].strip()
+                    
+                    # Get price
+                    price = ""
+                    if price_col is not None and price_col < len(row):
+                        price = row[price_col].strip()
+                    
+                    # Create narration text
+                    if product_title:
+                        narration_texts.append(f"Check out this amazing product: {product_title}")
+                    
+                    if brand:
+                        narration_texts.append(f"Brand: {brand}")
+                    
+                    if product_description:
+                        # Split long descriptions into multiple sentences
+                        sentences = product_description.split('.')
+                        for sentence in sentences:
+                            sentence = sentence.strip()
+                            if sentence:
+                                narration_texts.append(sentence)
+                    
+                    if price:
+                        narration_texts.append(f"Price: {price}")
+                    
+                    # Add a call to action
+                    narration_texts.append("Don't miss out on this great deal!")
+                    
                     # Create a separate output path for this product
                     product_output_path = os.path.join(UPLOAD_FOLDER, f"product_{row_num}_output.mp4")
-                    success, message = create_video_from_images(image_paths, product_output_path, duration_per_image)
+                    success, message = create_video_from_images(
+                        image_paths, 
+                        product_output_path, 
+                        duration_per_image, 
+                        narration_texts, 
+                        language_code, 
+                        voice_name
+                    )
                     if success:
                         product_videos.append({
                             'product_id': row_num,
@@ -618,10 +827,13 @@ def csv_to_video():
         if not allowed_file(file.filename):
             return jsonify({'error': 'Invalid file type. Only CSV files are allowed'}), 400
         
-        # Get duration parameter (default to 3 seconds)
+        # Get parameters
         duration = int(request.form.get('duration', 3))
         if duration < 1 or duration > 30:
             duration = 3
+            
+        language_code = request.form.get('language_code', 'en-US')
+        voice_name = request.form.get('voice_name', 'en-US-Standard-C')
         
         # Generate unique filenames
         file_id = str(uuid.uuid4())
@@ -637,7 +849,7 @@ def csv_to_video():
         logger.info(f"CSV file uploaded: {input_path}")
         
         # Process the CSV and create videos
-        success, result = process_csv_and_create_video(input_path, duration)
+        success, result = process_csv_and_create_video(input_path, duration, language_code, voice_name)
         
         # Clean up input file
         cleanup_file(input_path)

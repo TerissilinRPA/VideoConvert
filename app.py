@@ -282,10 +282,9 @@ def create_video_from_images(image_paths, output_path, duration_per_image=3):
         logger.error(error_msg)
         return False, error_msg
 
-def process_csv_and_create_video(csv_path, output_path, duration_per_image=3):
-    """Process a CSV file and create a video from the images."""
+def process_csv_and_create_video(csv_path, duration_per_image=3):
+    """Process a CSV file and create separate videos for each product from the images."""
     try:
-        image_paths = []
         temp_image_dir = os.path.join(UPLOAD_FOLDER, f"temp_images_{uuid.uuid4()}")
         os.makedirs(temp_image_dir, exist_ok=True)
         
@@ -318,8 +317,10 @@ def process_csv_and_create_video(csv_path, output_path, duration_per_image=3):
                 # This is a fallback and might need adjustment based on the actual CSV structure
                 image_columns = [19, 20, 21, 22, 23, 24]  # Based on the example CSV structure
             
-            # Process each row
+            # Process each row (product)
+            product_videos = []
             for row_num, row in enumerate(reader):
+                image_paths = []
                 # Process image columns for this row
                 for col_index in image_columns:
                     if col_index < len(row):
@@ -333,19 +334,33 @@ def process_csv_and_create_video(csv_path, output_path, duration_per_image=3):
                             success, message = download_image(image_url, image_path)
                             if success and os.path.exists(image_path):
                                 image_paths.append(image_path)
-        
-        # If we have images, create the video
-        if image_paths:
-            success, message = create_video_from_images(image_paths, output_path, duration_per_image)
-            # Clean up downloaded images
-            for image_path in image_paths:
-                if os.path.exists(image_path):
-                    os.remove(image_path)
-            os.rmdir(temp_image_dir)
-            return success, message
-        else:
-            os.rmdir(temp_image_dir)
-            return False, "No valid image URLs found in CSV file"
+                
+                # If we have images for this product, create a video
+                if image_paths:
+                    # Create a separate output path for this product
+                    product_output_path = os.path.join(UPLOAD_FOLDER, f"product_{row_num}_output.mp4")
+                    success, message = create_video_from_images(image_paths, product_output_path, duration_per_image)
+                    if success:
+                        product_videos.append({
+                            'product_id': row_num,
+                            'output_path': product_output_path,
+                            'image_count': len(image_paths)
+                        })
+                    
+                    # Clean up downloaded images for this product
+                    for image_path in image_paths:
+                        if os.path.exists(image_path):
+                            os.remove(image_path)
+            
+            # Clean up temp directory
+            if os.path.exists(temp_image_dir):
+                os.rmdir(temp_image_dir)
+            
+            # If we created any product videos, return success
+            if product_videos:
+                return True, product_videos
+            else:
+                return False, "No valid image URLs found in CSV file"
             
     except Exception as e:
         logger.error(f"Error processing CSV file: {str(e)}")
@@ -611,8 +626,6 @@ def csv_to_video():
         # Generate unique filenames
         file_id = str(uuid.uuid4())
         original_filename = secure_filename(file.filename or 'unknown.csv')
-        # Create output filename with same name but .mp4 extension
-        output_name = os.path.splitext(original_filename)[0] + '.mp4'
         input_filename = f"{file_id}_input.csv"
         output_filename = f"{file_id}_output.mp4"
         
@@ -623,26 +636,31 @@ def csv_to_video():
         file.save(input_path)
         logger.info(f"CSV file uploaded: {input_path}")
         
-        # Process the CSV and create video
-        success, message = process_csv_and_create_video(input_path, output_path, duration)
+        # Process the CSV and create videos
+        success, result = process_csv_and_create_video(input_path, duration)
         
         # Clean up input file
         cleanup_file(input_path)
         
         if not success:
-            cleanup_file(output_path)
-            return jsonify({'error': message}), 500
+            return jsonify({'error': result}), 500
         
-        # Check if output file was created
-        if not os.path.exists(output_path):
-            return jsonify({'error': 'Video creation failed - output file not created'}), 500
+        # Create download URLs for each product video
+        product_videos = []
+        for video_info in result:
+            product_id = video_info['product_id']
+            product_videos.append({
+                'product_id': product_id,
+                'download_url': f"/api/download-product-video/{file_id}/{product_id}",
+                'image_count': video_info['image_count']
+            })
         
         return jsonify({
             'success': True,
-            'message': 'Video created successfully',
+            'message': f'Created {len(product_videos)} product videos',
             'file_id': file_id,
             'original_filename': original_filename,
-            'download_url': f"/api/download-video/{file_id}"
+            'product_videos': product_videos
         })
         
     except RequestEntityTooLarge:
@@ -651,22 +669,24 @@ def csv_to_video():
         logger.error(f"CSV to video error: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@app.route('/api/download-video/<file_id>')
-def download_video(file_id):
-    """Download generated video file."""
+@app.route('/api/download-product-video/<file_id>/<product_id>')
+def download_product_video(file_id, product_id):
+    """Download generated product video file."""
     try:
         # Validate file_id format (should be a valid UUID)
         uuid.UUID(file_id)
         
-        output_filename = f"{file_id}_output.mp4"
+        # Validate product_id is a number
+        product_id = int(product_id)
+        
+        output_filename = f"product_{product_id}_output.mp4"
         output_path = os.path.join(UPLOAD_FOLDER, output_filename)
         
         if not os.path.exists(output_path):
             return jsonify({'error': 'File not found or has been cleaned up'}), 404
         
-        # Use the original filename with .mp4 extension for download
-        original_filename = f"video_{file_id}.mp4"
-        download_name = os.path.splitext(original_filename)[0] + '.mp4'
+        # Use a descriptive filename for download
+        download_name = f"product_{product_id}_video.mp4"
         
         return send_file(
             output_path,
@@ -676,9 +696,9 @@ def download_video(file_id):
         )
         
     except ValueError:
-        return jsonify({'error': 'Invalid file ID'}), 400
+        return jsonify({'error': 'Invalid file ID or product ID'}), 400
     except Exception as e:
-        logger.error(f"Video download error: {str(e)}")
+        logger.error(f"Product video download error: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.errorhandler(413)

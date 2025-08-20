@@ -163,7 +163,7 @@ class VideoConverter {
             if (data.success) {
                 this.currentFileId = data.file_id;
                 this.downloadUrl = data.download_url;
-                this.showCsvSuccess(data.original_filename);
+                this.showCsvSuccess(data);
             } else {
                 this.showError(data.error || 'Video creation failed');
             }
@@ -187,7 +187,7 @@ class VideoConverter {
         }
     }
 
-    showCsvSuccess(originalFilename) {
+    showCsvSuccess(data) {
         const resultsCard = document.getElementById('resultsCard');
         const successResult = document.getElementById('successResult');
         const errorResult = document.getElementById('errorResult');
@@ -196,13 +196,45 @@ class VideoConverter {
         successResult.classList.remove('d-none');
         errorResult.classList.add('d-none');
 
-        // Update success message with filename
+        // Update success message with filename and product video info
         const cardText = successResult.querySelector('.card-text');
-        cardText.textContent = `Your video has been successfully created from the CSV file "${originalFilename}".`;
+        
+        if (data.product_videos && data.product_videos.length > 0) {
+            // Create download links for each product video
+            let videoListHtml = `<strong>Successfully created ${data.product_videos.length} product videos from the CSV file "${data.original_filename}".</strong><br><br>`;
+            videoListHtml += '<div class="mt-3"><strong>Download your product videos:</strong><br>';
+            
+            data.product_videos.forEach((video, index) => {
+                videoListHtml += `
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-success download-product-btn" data-url="${video.download_url}">
+                            <i class="fas fa-download me-1"></i>Download Product ${video.product_id} Video (${video.image_count} images)
+                        </button>
+                    </div>
+                `;
+            });
+            
+            videoListHtml += '</div>';
+            cardText.innerHTML = videoListHtml;
+            
+            // Add event listeners for download buttons
+            document.querySelectorAll('.download-product-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const downloadUrl = button.getAttribute('data-url');
+                    this.downloadProductVideo(downloadUrl);
+                });
+            });
+        } else {
+            cardText.textContent = `Your video has been successfully created from the CSV file "${data.original_filename}".`;
+        }
         
         // Update the title to reflect CSV to video conversion
         const cardTitle = successResult.querySelector('.card-title');
         cardTitle.innerHTML = '<i class="fas fa-check-circle me-2"></i> Video Creation Successful!';
+        
+        // Hide the main download button since we have multiple videos
+        document.getElementById('downloadBtn').style.display = 'none';
     }
 
     disableCsvForm() {
@@ -444,15 +476,20 @@ class VideoConverter {
         document.getElementById('resultsCard').classList.add('d-none');
         document.getElementById('progressCard').classList.add('d-none');
         
-        // Reset form
+        // Reset forms
         document.getElementById('uploadForm').reset();
+        document.getElementById('csvUploadForm').reset();
+        
+        // Show the main download button again
+        document.getElementById('downloadBtn').style.display = 'inline-block';
         
         // Clear state
         this.currentFileId = null;
         this.downloadUrl = null;
         
-        // Enable form
+        // Enable forms
         this.enableForm();
+        this.enableCsvForm();
     }
 
     disableForm() {
@@ -753,6 +790,23 @@ class VideoConverter {
             document.body.removeChild(link);
 
             this.showToast('Download started successfully!', 'success');
+        } catch (error) {
+            console.error('Download error:', error);
+            this.showToast('Download failed. Please try again.', 'error');
+        }
+    }
+
+    async downloadProductVideo(downloadUrl) {
+        try {
+            // Create a temporary link to trigger download
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            this.showToast('Product video download started successfully!', 'success');
         } catch (error) {
             console.error('Download error:', error);
             this.showToast('Download failed. Please try again.', 'error');

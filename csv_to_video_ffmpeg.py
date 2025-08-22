@@ -14,7 +14,7 @@ import base64
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-def synthesize_speech_with_gemini(text: str, output_path: str, voice_name: str = "Zephyr", api_key: str = None) -> Tuple[bool, str]:
+def synthesize_speech_with_gemini(text: str, output_path: str, voice_name: str = "Aoede", api_key: str = None) -> Tuple[bool, str]:
     """Synthesize speech from text using Gemini TTS."""
     try:
         # Use provided API key or get from environment variables
@@ -25,7 +25,7 @@ def synthesize_speech_with_gemini(text: str, output_path: str, voice_name: str =
             return False, "GEMINI_API_KEY not set"
         
         # Set up the API endpoint
-        model = "gemini-2.5-flash-preview-tts"
+        model = "gemini-2.5-flash-exp-1219"
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={api_key}"
         
         # Prepare the request payload
@@ -37,7 +37,7 @@ def synthesize_speech_with_gemini(text: str, output_path: str, voice_name: str =
                 }]
             }],
             "generationConfig": {
-                "responseModalities": ["audio"],
+                "responseModalities": ["AUDIO"],
                 "speechConfig": {
                     "voiceConfig": {
                         "prebuiltVoiceConfig": {
@@ -173,7 +173,7 @@ def create_video_from_product_data(
     product_data: Dict, 
     output_path: str, 
     duration_per_scene: float = 5.0,
-    voice_name: str = "Zephyr",
+    voice_name: str = "Aoede",
     api_key: str = None,
     show_subtitles: bool = True,
     font_style: str = "Sarabun",
@@ -499,7 +499,7 @@ def process_csv_and_create_videos(
     csv_path: str,
     output_dir: str,
     duration_per_scene: float = 5.0,
-    voice_name: str = "Zephyr",
+    voice_name: str = "Aoede",
     api_key: str = None,
     show_subtitles: bool = True,
     font_style: str = "Sarabun",

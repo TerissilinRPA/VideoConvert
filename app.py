@@ -15,13 +15,8 @@ from flask import Flask, request, jsonify, render_template, send_file, flash, re
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 
-# Import Google Cloud Text-to-Speech
-try:
-    from google.cloud import texttospeech
-    GOOGLE_CLOUD_AVAILABLE = True
-except ImportError:
-    GOOGLE_CLOUD_AVAILABLE = False
-    texttospeech = None
+# Import our new FFmpeg-based video creation module
+import csv_to_video_ffmpeg
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -872,7 +867,7 @@ def get_queue_status():
 
 @app.route('/api/csv-to-video', methods=['POST'])
 def csv_to_video():
-    """API endpoint for creating videos from CSV files with image URLs."""
+    """API endpoint for creating videos from CSV files with product data using FFmpeg rendering."""
     try:
         # Check if file is present in request
         if 'file' not in request.files:
@@ -886,46 +881,69 @@ def csv_to_video():
         if not allowed_file(file.filename):
             return jsonify({'error': 'Invalid file type. Only CSV files are allowed'}), 400
         
-        # Get parameters
-        duration = int(request.form.get('duration', 3))
-        if duration < 1 or duration > 30:
-            duration = 3
+        # Get parameters for FFmpeg-based video creation
+        duration_per_scene = float(request.form.get('duration_per_scene', 5.0))
+        if duration_per_scene < 1 or duration_per_scene > 30:
+            duration_per_scene = 5.0
             
-        language_code = request.form.get('language_code', 'en-US')
-        voice_name = request.form.get('voice_name', 'en-US-Standard-C')
+        voice_name = request.form.get('voice_name', 'Zephyr')
         gemini_api_key = request.form.get('gemini_api_key')
+        show_subtitles = request.form.get('show_subtitles', 'true').lower() == 'true'
+        font_style = request.form.get('font_style', 'Sarabun')
+        font_size = int(request.form.get('font_size', 60))
+        watermark = request.form.get('watermark', '')
+        outro_text = request.form.get('outro_text', '')
         
-        # Generate unique filenames
+        # Generate unique ID for this batch
         file_id = str(uuid.uuid4())
         original_filename = secure_filename(file.filename or 'unknown.csv')
         input_filename = f"{file_id}_input.csv"
-        output_filename = f"{file_id}_output.mp4"
+        output_dir = os.path.join(UPLOAD_FOLDER, f"product_videos_{file_id}")
         
         input_path = os.path.join(UPLOAD_FOLDER, input_filename)
-        output_path = os.path.join(UPLOAD_FOLDER, output_filename)
         
         # Save uploaded file
         file.save(input_path)
         logger.info(f"CSV file uploaded: {input_path}")
         
-        # Process the CSV and create videos
-        success, result = process_csv_and_create_video(input_path, duration, language_code, voice_name, gemini_api_key)
+        # Process the CSV and create videos using our new FFmpeg-based approach
+        success, result = csv_to_video_ffmpeg.process_csv_and_create_videos(
+            input_path,
+            output_dir,
+            duration_per_scene,
+            voice_name,
+            gemini_api_key,
+            show_subtitles,
+            font_style,
+            font_size,
+            watermark,
+            outro_text
+        )
         
         # Clean up input file
         cleanup_file(input_path)
         
         if not success:
-            return jsonify({'error': result}), 500
+            return jsonify({'error': result[0].get('message', 'Failed to create videos')}), 500
         
         # Create download URLs for each product video
         product_videos = []
         for video_info in result:
-            product_id = video_info['product_id']
-            product_videos.append({
-                'product_id': product_id,
-                'download_url': f"/api/download-product-video/{file_id}/{product_id}",
-                'image_count': video_info['image_count']
-            })
+            if not video_info.get('error'):
+                product_id = video_info['product_id']
+                product_title = video_info['product_title']
+                # Create a safe filename for download
+                safe_title = "".join(c for c in product_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                if not safe_title:
+                    safe_title = f"product_{product_id}"
+                download_filename = f"{safe_title.replace(' ', '_')}.mp4"
+                
+                product_videos.append({
+                    'product_id': product_id,
+                    'product_title': product_title,
+                    'download_url': f"/api/download-product-video-ffmpeg/{file_id}/{download_filename}",
+                    'message': video_info.get('message', 'Video created successfully')
+                })
         
         return jsonify({
             'success': True,
@@ -971,6 +989,38 @@ def download_product_video(file_id, product_id):
         return jsonify({'error': 'Invalid file ID or product ID'}), 400
     except Exception as e:
         logger.error(f"Product video download error: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+
+@app.route('/api/download-product-video-ffmpeg/<file_id>/<filename>')
+def download_product_video_ffmpeg(file_id, filename):
+    """Download generated product video file created with FFmpeg."""
+    try:
+        # Validate file_id format (should be a valid UUID)
+        uuid.UUID(file_id)
+        
+        # Validate filename
+        if not filename or '..' in filename or '/' in filename:
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        # Construct the path to the video file
+        output_dir = os.path.join(UPLOAD_FOLDER, f"product_videos_{file_id}")
+        output_path = os.path.join(output_dir, filename)
+        
+        if not os.path.exists(output_path):
+            return jsonify({'error': 'File not found or has been cleaned up'}), 404
+        
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='video/mp4'
+        )
+        
+    except ValueError:
+        return jsonify({'error': 'Invalid file ID'}), 400
+    except Exception as e:
+        logger.error(f"FFmpeg product video download error: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.errorhandler(413)

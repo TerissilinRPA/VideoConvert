@@ -65,10 +65,16 @@ The application will be available at http://localhost:5000
 ## API Endpoints
 
 - `POST /api/convert` - Convert WebM to MP4
-- `POST /api/csv-to-video` - Create video from CSV with image URLs
-- `GET /api/download/<file_id>` - Download converted MP4 file
-- `GET /api/status` - Check API status and FFmpeg availability
+- `POST /api/bulk-convert` - Queue multiple WebM files for conversion
 - `GET /api/queue-status` - Get conversion queue status
+- `POST /api/csv-to-video` - Create videos from CSV (FFmpeg renderer + Gemini TTS)
+- `POST /api/render-video` - Render vertical video from images + audio + scenes (manifest)
+- `GET /api/download/<file_id>` - Download converted MP4 file
+- `GET /api/download-render/<file_id>` - Download rendered MP4 from manifest
+- `GET /api/download-product-video-ffmpeg/<file_id>/<filename>` - Download generated CSV product video
+- `GET /api/status` - Check API status and FFmpeg availability
+
+For full request/response details and curl examples, see `docs/API.md`.
 
 ## Deployment
 

@@ -221,6 +221,77 @@ def cleanup_file(file_path):
     except Exception as e:
         logger.error(f"Error cleaning up file {file_path}: {str(e)}")
 
+def _decode_data_url_to_file(data_url: str, out_path: str) -> bool:
+    """Decode a data: URL (base64) to a file on disk."""
+    try:
+        import re, base64
+        m = re.match(r"^data:([^;]+);base64,(.*)$", data_url)
+        if not m:
+            return False
+        b64 = m.group(2)
+        with open(out_path, 'wb') as f:
+            f.write(base64.b64decode(b64))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to decode data URL: {e}")
+        return False
+
+def _download_or_decode_image_to_file(src: str, out_path: str) -> bool:
+    """Save an image to disk from either data URL or http(s) URL."""
+    try:
+        if isinstance(src, str) and src.startswith('data:'):
+            return _decode_data_url_to_file(src, out_path)
+        if isinstance(src, str) and (src.startswith('http://') or src.startswith('https://')):
+            ok, msg = download_image(src, out_path)
+            return ok
+        # Treat as local path if exists
+        if isinstance(src, str) and os.path.exists(src):
+            from shutil import copyfile
+            copyfile(src, out_path)
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Failed to obtain image: {e}")
+        return False
+
+def _probe_duration_seconds(media_path: str) -> float:
+    try:
+        cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', media_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        data = json.loads(result.stdout or '{}')
+        dur = float(data.get('format', {}).get('duration', '0') or 0)
+        if dur <= 0:
+            # Try stream duration
+            for s in data.get('streams', []):
+                if 'duration' in s:
+                    dur = max(dur, float(s['duration']))
+        return max(0.0, dur)
+    except Exception:
+        return 0.0
+
+def _build_srt_from_scenes(scenes, durations, out_path: str):
+    try:
+        def fmt(t):
+            h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60); ms = int((t % 1) * 1000)
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+        t = 0.0
+        with open(out_path, 'w', encoding='utf-8') as f:
+            idx = 1
+            for i, sc in enumerate(scenes):
+                text = (sc.get('text') or '').strip()
+                if not text:
+                    d = durations[i]
+                    t += d
+                    continue
+                d = durations[i]
+                start = t; end = t + d
+                f.write(f"{idx}\n")
+                f.write(f"{fmt(start)} --> {fmt(end)}\n")
+                f.write(text.replace('\n', ' ') + "\n\n")
+                t = end; idx += 1
+    except Exception as e:
+        logger.warning(f"Failed to create SRT: {e}")
+
 def synthesize_speech(text, output_path, language_code="en-US", voice_name="en-US-Standard-C", api_key=None):
     """Synthesize speech from text using Gemini TTS."""
     try:
@@ -698,7 +769,193 @@ def convert_video():
         return jsonify({'error': 'File too large. Maximum size is 500MB'}), 413
     except Exception as e:
         logger.error(f"Conversion error: {str(e)}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+    return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/api/render-video', methods=['POST'])
+def render_video_from_assets():
+    """
+    Render a vertical video (1080x1920) from client-provided assets.
+
+    Expected JSON body:
+    {
+      "topic": "...",                      // optional
+      "scriptData": { "scenes": [{"text": "...", "startTime": 0, "endTime": 3}, ...] },
+      "images": ["data:image/png;base64,...", ...], // first may be thumbnail
+      "audioSrc": "data:audio/mpeg;base64,...",
+      "options": { "width":1080, "height":1920, "fps":30, "showSubtitles":true, "fontFamily":"DejaVuSans", "fontSize":40, "watermark":"@channel" }
+    }
+    Returns: { success, file_id, download_url }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        images = data.get('images') or []
+        audio_src = data.get('audioSrc') or data.get('audio')
+        script = data.get('scriptData') or {}
+        scenes = script.get('scenes') or []
+        opts = data.get('options') or {}
+
+        if not images or not audio_src:
+            return jsonify({ 'error': 'images and audioSrc are required' }), 400
+
+        width = int(opts.get('width', 1080))
+        height = int(opts.get('height', 1920))
+        fps = int(opts.get('fps', 30))
+        show_subs = bool(opts.get('showSubtitles', True))
+        font_family = opts.get('fontFamily', 'DejaVuSans')
+        font_size = int(opts.get('fontSize', 40))
+        watermark = opts.get('watermark', '')
+
+        file_id = str(uuid.uuid4())
+        temp_dir = os.path.join(UPLOAD_FOLDER, f"render_{file_id}")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Save audio
+        audio_path = os.path.join(temp_dir, 'audio')
+        # Determine extension from mime if present
+        audio_ext = 'mp3'
+        if isinstance(audio_src, str) and audio_src.startswith('data:'):
+            try:
+                mime = audio_src.split(';', 1)[0].split(':', 1)[1]
+                if 'ogg' in mime:
+                    audio_ext = 'ogg'
+                elif 'wav' in mime:
+                    audio_ext = 'wav'
+                elif 'mpeg' in mime or 'mp3' in mime:
+                    audio_ext = 'mp3'
+            except Exception:
+                pass
+        audio_path = audio_path + f'.{audio_ext}'
+        if isinstance(audio_src, str) and audio_src.startswith('data:'):
+            if not _decode_data_url_to_file(audio_src, audio_path):
+                return jsonify({ 'error': 'Failed to decode audioSrc data URL' }), 400
+        elif isinstance(audio_src, str) and (audio_src.startswith('http://') or audio_src.startswith('https://')):
+            ok, msg = download_image(audio_src, audio_path)
+            if not ok:
+                return jsonify({ 'error': f'Failed to download audio: {msg}' }), 400
+        else:
+            return jsonify({ 'error': 'audioSrc must be a data URL or http(s) URL' }), 400
+
+        # Optionally convert audio to WAV for consistent ffmpeg muxing
+        wav_audio_path = os.path.join(temp_dir, 'audio.wav')
+        try:
+            cmd = ['ffmpeg', '-i', audio_path, '-ac', '2', '-ar', '44100', '-y', wav_audio_path]
+            subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            use_audio_path = wav_audio_path if os.path.exists(wav_audio_path) else audio_path
+        except Exception:
+            use_audio_path = audio_path
+
+        # Determine total audio duration
+        total_audio_sec = _probe_duration_seconds(use_audio_path)
+
+        # Decide which images to use for scenes (skip thumbnail if count matches)
+        image_list = images
+        if len(images) == len(scenes) + 1:
+            image_list = images[1:]
+
+        # Save images to files and prepare durations
+        frame_paths = []
+        for i, img in enumerate(image_list):
+            out = os.path.join(temp_dir, f"frame_{i:03d}.png")
+            if not _download_or_decode_image_to_file(img, out):
+                # fallback to blank frame
+                cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'color=c=black:s={width}x{height}', '-vframes', '1', '-y', out]
+                subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            frame_paths.append(out)
+
+        if not frame_paths:
+            return jsonify({ 'error': 'No valid frames available' }), 400
+
+        num_scenes = min(len(scenes) if scenes else len(frame_paths), len(frame_paths))
+        if num_scenes <= 0:
+            num_scenes = len(frame_paths)
+
+        # Compute per-scene durations
+        durations = []
+        if scenes:
+            for i in range(num_scenes):
+                st = scenes[i].get('startTime'); en = scenes[i].get('endTime')
+                if isinstance(st, (int, float)) and isinstance(en, (int, float)) and en > st:
+                    durations.append(float(en - st))
+        if not durations:
+            # Even distribution
+            base = (total_audio_sec / num_scenes) if total_audio_sec > 0 else 3.0
+            durations = [base for _ in range(num_scenes)]
+
+        # Build concat list file
+        list_path = os.path.join(temp_dir, 'frames.txt')
+        with open(list_path, 'w') as f:
+            for i in range(num_scenes):
+                f.write(f"file '{frame_paths[i]}'\n")
+                f.write(f"duration {durations[i]}\n")
+            # Repeat last frame once per concat demuxer rules
+            f.write(f"file '{frame_paths[num_scenes-1]}'\n")
+
+        # Create slideshow video scaled to target
+        slideshow_path = os.path.join(temp_dir, 'slideshow.mp4')
+        vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+        cmd = [
+            'ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_path,
+            '-vf', vf, '-r', str(fps), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', slideshow_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            return jsonify({ 'error': f"Failed to create slideshow: {result.stderr}" }), 500
+
+        # Optional subtitles
+        video_for_mux = slideshow_path
+        srt_path = None
+        if show_subs and scenes:
+            srt_path = os.path.join(temp_dir, 'captions.srt')
+            _build_srt_from_scenes(scenes[:num_scenes], durations, srt_path)
+            subtitled_path = os.path.join(temp_dir, 'subtitled.mp4')
+            cmd = [
+                'ffmpeg', '-i', slideshow_path,
+                '-vf', f"subtitles={srt_path}", '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', subtitled_path
+            ]
+            res2 = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if res2.returncode == 0 and os.path.exists(subtitled_path):
+                video_for_mux = subtitled_path
+
+        # Optional watermark
+        if watermark:
+            watermarked_path = os.path.join(temp_dir, 'watermarked.mp4')
+            drawtext = f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:text='{watermark}':fontcolor=white@0.8:fontsize=24:x=w-tw-10:y=10"
+            cmd = ['ffmpeg', '-i', video_for_mux, '-vf', drawtext, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', watermarked_path]
+            res3 = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if res3.returncode == 0 and os.path.exists(watermarked_path):
+                video_for_mux = watermarked_path
+
+        # Mux with audio
+        out_filename = f"{file_id}_render.mp4"
+        out_path = os.path.join(UPLOAD_FOLDER, out_filename)
+        cmd = ['ffmpeg', '-i', video_for_mux, '-i', use_audio_path, '-c:v', 'copy', '-c:a', 'aac', '-shortest', '-y', out_path]
+        res4 = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if res4.returncode != 0 or not os.path.exists(out_path):
+            return jsonify({ 'error': f"Failed to mux audio: {res4.stderr}" }), 500
+
+        # Success
+        return jsonify({
+            'success': True,
+            'file_id': file_id,
+            'download_url': f"/api/download-render/{file_id}",
+        }), 200
+    except Exception as e:
+        logger.error(f"Render error: {e}")
+        return jsonify({ 'error': f'Server error: {str(e)}' }), 500
+
+@app.route('/api/download-render/<file_id>')
+def download_render(file_id):
+    try:
+        uuid.UUID(file_id)
+        out_path = os.path.join(UPLOAD_FOLDER, f"{file_id}_render.mp4")
+        if not os.path.exists(out_path):
+            return jsonify({ 'error': 'File not found or has been cleaned up' }), 404
+        return send_file(out_path, as_attachment=True, download_name=f"render_{file_id}.mp4", mimetype='video/mp4')
+    except ValueError:
+        return jsonify({ 'error': 'Invalid file ID' }), 400
+    except Exception as e:
+        logger.error(f"Download render error: {e}")
+        return jsonify({ 'error': f'Server error: {str(e)}' }), 500
 
 @app.route('/api/download/<file_id>')
 def download_file(file_id):
